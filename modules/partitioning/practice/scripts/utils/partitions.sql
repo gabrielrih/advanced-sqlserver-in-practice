@@ -1,4 +1,4 @@
-DECLARE @TableName AS VARCHAR(30) = 'Vendas'
+DECLARE @TableName AS VARCHAR(30) = 'Vendas_Partitioned_One'
 
 -- Total table rows
 SELECT OBJECT_NAME(ID) As Tabela, Rows As Rows FROM sysindexes WHERE IndID IN (0,1) and OBJECT_NAME(ID) = @TableName

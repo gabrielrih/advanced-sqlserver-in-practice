@@ -4,6 +4,7 @@
 Antes de iniciar nesse módulo é importante que você tenha claro os seguintes conceitos:
 - [Filegroup / Data files](https://learn.microsoft.com/en-us/sql/relational-databases/databases/database-files-and-filegroups?view=sql-server-ver16#file-and-filegroup-fill-strategy)
 - [Indexes](https://learn.microsoft.com/en-us/sql/relational-databases/indexes/indexes?view=sql-server-ver16)
+- Plano de execução: index seek, index scan e key lookup.
 
 ## O que é? 
 TO DO
@@ -24,6 +25,8 @@ TO DO
 MORE HERE
 
 ## Exemplos práticos
+- [Particionamento por data](./practice/PARTITIONING_BY_DATE.md)
+
 - Set up: configurar uma tabela particionada e outra exatamente igual porém sem particionamento.
 - Load: Popular dados em ambas tabelas (os mesmos dados).
 - Show: Mostrar como ficou os dados na tabela particionada e como ficou na tabela não particionada.

@@ -3,6 +3,8 @@ Curso prático de SQL Server com conteúdo modular.  Cada módulo contém resumo
 
 ## Módulos
 - [Particionamento](/modules/partitioning/README.md)
+- Manutenção de Banco Sql Server/Tunning: falar disso depois do particionamento? 
+    Como diminuir fragmentação? FILFACTOR e GUID/LUID
 - Otimização
 - Declaração de variáveis/conversão de informação (melhores práticas)
 - Plano de consulta
@@ -10,5 +12,4 @@ Curso prático de SQL Server com conteúdo modular.  Cada módulo contém resumo
 - Triggers
 - View
 - Stored Procedure
-- Manutenção de Banco Sql Server/Tunning
 - Ponteiros/cursores

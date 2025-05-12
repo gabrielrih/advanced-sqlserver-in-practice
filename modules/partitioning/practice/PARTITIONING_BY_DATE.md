@@ -1,4 +1,16 @@
-# Particionamento na prática
+# Particionamento por data
+
+- [Preparando o ambiente](#preparando-o-ambiente)
+- [Cenário 0 - Dados não particionados](#cenário-0---dados-não-particionados)
+- [Cenário 1](#cenário-1)
+	- [Load](#load)
+	- [Busca de dados](#busca-de-dados)
+	- [Manutenção](#manutenção)
+- [Cenário 2](#cenário-2)
+	- [Load](#load-1)
+	- [Busca de dados](#busca-de-dados-1)
+	- [Manutenção](#manutenção-1)
+- [Comparação entre cenários](#comparação-entre-cenários)
 
 ## Preparando o ambiente
 
@@ -6,6 +18,74 @@
 CREATE DATABASE [LojaParticionada];
 GO
 ```
+
+## Cenário 0 - Dados não particionados
+Inicialmente criamos uma tabela chamada **Vendas** não particionada. Nesse exemplo, estamos simulando uma PK pelo campo id e um índice NONCLUSTERED auxiliar por created_at (campo que em um cenário real poderia ser usado para um script de expurgo por exemplo).
+
+**Vantagens**:
+- Simplicidade na criação da tabela, manutenção e operação.
+
+**Desvantagens**:
+- Perda de performance e maior tempo para tarefas de manutenção a medida que a tabela cresce.
+
+
+Vamos criar a tabela:
+```sql
+USE [LojaParticionada];
+GO
+
+CREATE TABLE [dbo].[Vendas] (
+    [id] INT IDENTITY(1,1) NOT NULL,
+    [cliente] VARCHAR(100) NOT NULL,
+    [valor] DECIMAL(10,2) NOT NULL,
+    [created_at] DATE NOT NULL
+) ON [PRIMARY]
+GO
+
+-- PK
+ALTER TABLE [dbo].[Vendas]
+ADD CONSTRAINT [PK_Vendas_Id] PRIMARY KEY CLUSTERED ([id])
+ON [PRIMARY]
+GO
+
+-- Índice auxiliar
+CREATE NONCLUSTERED INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas] ([created_at] ASC)
+ON [PRIMARY]
+GO
+```
+
+![tabela criada](./img/cenario_0/table.png)
+
+### Load
+E agora vamos inserir uma massa de dados, representando 50.000 registros por mês usando essa query de [load.sql](./scripts/utils/load.sql).
+
+> Importante alterar o nome da tabela antes de executar.
+
+E agora usando esse [script](./scripts/utils/partitions.sql) conseguimos validar a quantidade de registros salvos em cada um dos índices. Aqui vemos claramente que toso os 600.000 registros foram salvos na mesma partição 1 do índice.
+
+> Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição.
+
+![índices criados](./img/cenario_0/partitions.png)
+
+### Busca de dados
+Com essa abordagem, quanto mais registros temos na tabela, mais os índices crescerão e mais custoso será para o banco de dados realizar qualquer operação nessa massa de dados.
+
+Operações de **index_seek** nesses dados talvez não serão tão perceptíveis, pois o banco conseguirá obter os dados de forma eficiente na maioria das vezes. Porém, operação de **key lookup** ou **index scan** podem ser bastante custosas.
+
+Aqui temos um exemplo de uma busca pelo campo created_at. Veja que mesmo executando duas operações normalmente eficientes, que são o index_seek e o key_lookup, ainda assim, devido à quantidade total de registros, o banco precisou fazer 5.411 *logical reads*.
+
+![resultado da busca pelo campo created_at](./img/cenario_0/busca_created_at.png)
+
+![resultado das statistics na busca pelo campo created_at](./img/cenario_0/busca_created_at_statistics.png)
+
+Lembrando que o key lookup acontece pois o index seek é feito no índice NONCLUSTERED que não possui todos os campos da projeção, e por isso ele precisa realizar um key lookup no índice CLUSTERED para buscar os dados faltantes. Em um cenário onde o filtro consegue realizar um index seek diretamente no índice CLUSTERED, essa busca será muito mais eficiente e sem muito logical reads mesmo uma tabela não particionada. Como é o exemplo que eu aplico um **filtro pelo campo id** (PK clusterizada).
+
+![resultado da busca pelo campo id](./img/cenario_0/busca_id.png)
+
+![resultado das statistics na busca pelo campo id](./img/cenario_0/busca_id_statistics.png)
+
+### Manutenção
+TO DO
 
 ## Cenário 1
 Nessa abordagem criamos a **PK CLUSTERED** composta por id e created_at (onde created_at é o campo particionado). Além disso, criamos também um índice auxiliar somente por created_at, também particionado, permitindo buscas sem o id.
@@ -33,7 +113,7 @@ CREATE PARTITION SCHEME [ps_VendasPorMes]
 AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY]);
 GO
 
-CREATE TABLE [dbo].[Vendas] (
+CREATE TABLE [dbo].[Vendas_Partitioned_One] (
     [id] INT IDENTITY(1,1) NOT NULL,
     [cliente] VARCHAR(100) NOT NULL,
     [valor] DECIMAL(10,2) NOT NULL,
@@ -42,13 +122,13 @@ CREATE TABLE [dbo].[Vendas] (
 GO
 
 -- Pk clusterizada e particionada
-ALTER TABLE [dbo].[Vendas]
-ADD CONSTRAINT [PK_Vendas_Id_Created_at] PRIMARY KEY CLUSTERED ([id], [created_at])
+ALTER TABLE [dbo].[Vendas_Partitioned_One]
+ADD CONSTRAINT [PK_Vendas_Partitioned_One_Id_Created_at] PRIMARY KEY CLUSTERED ([id], [created_at])
 ON [ps_VendasPorMes] ([created_at])
 GO
 
 -- Índice auxiliar também particionado para permitir buscar somente por created_at
-CREATE NONCLUSTERED INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas] ([created_at] ASC)
+CREATE NONCLUSTERED INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] ([created_at] ASC)
 ON [ps_VendasPorMes] ([created_at])
 GO
 ```
@@ -56,46 +136,11 @@ GO
 ![tabela criada](./img/cenario_1/table.png)
 
 ### Load
-E agora vamos inserir uma massa de dados, representando 50K registros por mês.
-```sql
-SET NOCOUNT ON
+E agora vamos inserir uma massa de dados, representando 50.000 registros por mês usando essa query de [load.sql](./scripts/utils/load.sql).
 
-DECLARE @RowsPerMonth AS INT = 50000
-DECLARE @Month AS INT = 1
-DECLARE @CurrentRow AS INT
+> Importante alterar o nome da tabela antes de executar.
 
-WHILE @Month <= 12
-BEGIN
-	PRINT CONCAT('Inserindo ', @RowsPerMonth, ' linhas para o mês ', @Month, '/2025')
-
-	SET @CurrentRow = 1  -- reset before each month
-	WHILE @CurrentRow <= @RowsPerMonth
-	BEGIN
-		INSERT INTO [dbo].[Vendas] (cliente, valor, created_at)
-		VALUES (
-			CONCAT('Cliente_', ABS(CHECKSUM(NEWID())) % 100000), -- nome aleatório
-			CAST(RAND(CHECKSUM(NEWID())) * (1000 - 10) + 10 AS DECIMAL(10,2)), -- valor aleatório
-			DATEADD(DAY, ABS(CHECKSUM(NEWID())) % 28, DATEFROMPARTS(2025, @Month, 1)) -- data no mês
-		)
-		SET @CurrentRow += 1
-	END
-
-	SET @Month += 1	
-
-END
-
-SET NOCOUNT OFF
-GO
-
--- Verificar
-SELECT MONTH(created_at) AS Mes, COUNT(*) AS Inseridos
-FROM Vendas
-GROUP BY MONTH(created_at)
-ORDER BY Mes
-GO
-```
-
-E agora usando esse [script](./scripts/utils/partitions.sql) conseguimos validar as partições criadas para cada um dos índices e a quantidade de registros que temos em cada um. Aqui vemos claramento que temos 50.000 registros inseridos em cada uma das partições.
+E agora usando esse [script](./scripts/utils/partitions.sql) conseguimos validar as partições criadas para cada um dos índices e a quantidade de registros que temos em cada um. Aqui vemos claramente que temos 50.000 registros inseridos em cada uma das partições.
 
 > A partição 1 de cada índice é criada automaticamente pelo SQL Server para os casos foram do range definido.
 
@@ -126,6 +171,9 @@ Essa diferença fica ainda mais clara olhando para as métricas de logical reads
 
 ![comparação entre a busca pelo campo id ou utilizando id e created_at](./img/cenario_1/comparacao_busca_id_e_created_at.png)
 
+### Manutenção
+TO DO
+
 ## Cenário 2
 Nessa abordagem criamos o índice CLUSTERED particionado por id e created_at porém sem ser PRIMARY KEY. E criamos a PRIMARY KEY como NONCLUSTERED, para garantir unicidade, porém sem adicionar ao particionamento.
 
@@ -153,7 +201,7 @@ CREATE PARTITION SCHEME [ps_VendasPorMes]
 AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY]);
 GO
 
-CREATE TABLE [dbo].[Vendas_2] (
+CREATE TABLE [dbo].[Vendas_Partitioned_Two] (
     [id] INT IDENTITY(1,1) NOT NULL,
     [cliente] VARCHAR(100) NOT NULL,
     [valor] DECIMAL(10,2) NOT NULL,
@@ -162,12 +210,12 @@ CREATE TABLE [dbo].[Vendas_2] (
 GO
 
 -- Índice clusterizado e particionado
-CREATE CLUSTERED INDEX [IX_Vendas_2_Id_Created_At] ON [dbo].[Vendas_2] ([id], [created_at])
+CREATE CLUSTERED INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] ([id], [created_at])
 ON [ps_VendasPorMes]([created_at])
 GO
 
 -- Índice UNIQUE somente para evitar duplicidade
-ALTER TABLE [dbo].[Vendas_2] ADD CONSTRAINT [PK_Vendas_2_Id] PRIMARY KEY NONCLUSTERED ([id] ASC)
+ALTER TABLE [dbo].[Vendas_Partitioned_Two] ADD CONSTRAINT [PK_Vendas_Partitioned_Two_Id] PRIMARY KEY NONCLUSTERED ([id] ASC)
 ON [PRIMARY]
 GO
 ```
@@ -183,3 +231,12 @@ Veja que neste cenário, diferentemente do cenário anterior, o índice NONCLUST
 
 ### Busca de dados
 TO DO
+
+### Manutenção
+TO DO
+
+## Comparação entre cenários
+TO DO
+
+Principal vantagem na busca, operações de index scan serão mais rápidas no particionamento quando feitas em uma única partição.
+
