@@ -25,18 +25,18 @@ TO DO
 MORE HERE
 
 ## Exemplos práticos
-- [Particionamento por data](./practice/PARTITIONING_BY_DATE.md)
+Escopo:
+    - Set up: configurar uma tabela particionada e outra exatamente igual porém sem particionamento.
+    - Load: Popular dados em ambas tabelas (os mesmos dados).
+    - Show: Mostrar como ficou os dados na tabela particionada e como ficou na tabela não particionada.
+    - Select: Executar selects na tabela particionada e na não particionada. Mostrar planos de execução e diferenças de cada uma.
+    - Maintenance: Como ocorre o comportamento das manutenções para tabelas particionadas e não particionadas (reorganize/rebuild de índice).
+    - House Keeping: truncate de uma partition e exclusão de uma partition.
 
-- Set up: configurar uma tabela particionada e outra exatamente igual porém sem particionamento.
-- Load: Popular dados em ambas tabelas (os mesmos dados).
-- Show: Mostrar como ficou os dados na tabela particionada e como ficou na tabela não particionada.
-- Select: Rodar um select na tabela particionada e na não particionada. Mostra plano de execução e diferenças de cada uma. Trazer também um exemplo de quando o particionamento pode ser ruim.
-- Maintenance: trazer exemplos práticos na melhoria de questões de manutenção (reorganize/rebuild de índice, truncate de uma partition e exclusão de uma partition).
-
-Montar dois ou três cenários de particionamento:
-- data: created_date, inserted_at, event_time.
-- tenant: customer_id, tenant_id, company_id.
-- localidade: region_code, country, location_id.
+Exemplos:
+- [Particionamento por data](./practice/PARTITIONING_BY_DATE.md): created_date, inserted_at, event_time, etc.
+- Particionamento por tenant/client: customer_id, tenant_id, company_id, etc.
+- Particionamento por localidade: region_code, country, location_id, etc.
 
 ## Boas práticas e cuidados
 - Queries mais frequentes:
