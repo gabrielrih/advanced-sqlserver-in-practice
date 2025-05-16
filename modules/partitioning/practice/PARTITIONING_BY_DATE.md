@@ -85,7 +85,19 @@ Lembrando que o key lookup acontece pois o index seek é feito no índice NONCLU
 ![resultado das statistics na busca pelo campo id](./img/cenario_0/busca_id_statistics.png)
 
 ### Manutenção
-TO DO
+A manutenção dos índices, reorganize/rebuild, pode ser feita por partição (quando existe particionamento).
+Como a tabela do nosso exemplo não é particionado, a tarefa de REORGANIZE/REBUILD precisa reescrever/varrer todo o índice (quanto maior o índice, mais demorado e custoso será o processo).
+
+![fragmentação dos índices da tabela Vendas](./img/cenario_0/fragmentacao_dos_indices.png)
+
+```sql
+ALTER INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas]
+REBUILD WITH (FILLFACTOR = 90, SORT_IN_TEMPDB = ON, ONLINE = ON)
+GO
+```
+
+![resultado do rebuild](./img/cenario_0/resultado_do_rebuild.png)
+
 
 ## Cenário 1
 Nessa abordagem criamos a **PK CLUSTERED** composta por id e created_at (onde created_at é o campo particionado). Além disso, criamos também um índice auxiliar somente por created_at, também particionado, permitindo buscas sem o id.
@@ -172,7 +184,33 @@ Essa diferença fica ainda mais clara olhando para as métricas de logical reads
 ![comparação entre a busca pelo campo id ou utilizando id e created_at](./img/cenario_1/comparacao_busca_id_e_created_at.png)
 
 ### Manutenção
-TO DO
+
+![fragmentação dos índices da tabela Vendas](./img/cenario_1/fragmentacao_dos_indices.png)
+
+```sql
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 1 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 2 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 3 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 4 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 5 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 6 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 7 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 8 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 9 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 10 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 11 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 12 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 13 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+```
+
+> Comparação com o comando do índice não particionado: `ALTER INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas] REBUILD WITH (FILLFACTOR = 90, SORT_IN_TEMPDB = ON, ONLINE = ON) `
+
+![resultado do rebuild](./img/cenario_1/resultado_do_rebuild.png)
+
+Note que o REBUILD de cada partição é muito mais eficiente, sendo mais rápido e utilizando menos logical reads que o rebuild de todo o índice.
+Além disso, analisando o plano de execução vemos que o index scan performado acessa somente a partição desejado, assim, varrendo uma quantidade menor de registros e tendo um custo menor.
+
+![comparação do index scan no rebuild](./img/cenario_1/comparacao_index_scan_no_rebuild.png)
 
 ## Cenário 2
 Nessa abordagem criamos o índice CLUSTERED particionado por id e created_at porém sem ser PRIMARY KEY. E criamos a PRIMARY KEY como NONCLUSTERED, para garantir unicidade, porém sem adicionar ao particionamento.
