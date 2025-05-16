@@ -1,6 +1,6 @@
-''' 
+/*
     Para cada index partition retorna: rows, size, partition function, boundary type, boundary, filegroup e mais.
-'''
+*/
 SELECT
     sc.name + N'.' + so.name as [Schema.Table] ,
     si.index_id as [Index ID],

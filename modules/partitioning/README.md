@@ -36,17 +36,17 @@ Escopo:
 Exemplos:
 - [Particionamento por data](./practice/PARTITIONING_BY_DATE.md): created_date, inserted_at, event_time, etc.
 - Particionamento por tenant/client: customer_id, tenant_id, company_id, etc.
-- Particionamento por localidade: region_code, country, location_id, etc.
 
 ## Boas práticas e cuidados
 - Queries mais frequentes:
-    - Use a *partitioning colum* no predicado da query (WHERE).
+    - Use a *partitioning column* SEMPRE no predicado da query (WHERE).
 - Partitioning column:
     - Escolha a coluna de particionamento de forma que os dados sejam igualmente distribuídos entre as partições.
     - Péssimos candidatos:
         - Colunas com atualização frequente: email, nome, etc.
         - Skewed data: valores não distribuídos de forma equilibrada, exemplo, 90% dos dados tem o mesmo valor.
         - Colunas pouco usadas em filtros de consulta: nunca usadas no WHERE.
+- Operações de index scan serão mais rápidas no particionamento quando feitas em uma única partição. Evite buscas por range que precisem acessar múltiplas partições.
 
 ## Referências
 - [Documentação oficial](https://learn.microsoft.com/en-us/sql/relational-databases/partitions/partitioned-tables-and-indexes?view=sql-server-ver16)

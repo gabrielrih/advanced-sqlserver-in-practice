@@ -1,16 +1,19 @@
 # Particionamento por data
 
+- [Cenários](#cenários)
 - [Preparando o ambiente](#preparando-o-ambiente)
-- [Cenário 0 - Dados não particionados](#cenário-0---dados-não-particionados)
-- [Cenário 1](#cenário-1)
-	- [Load](#load)
-	- [Busca de dados](#busca-de-dados)
-	- [Manutenção](#manutenção)
-- [Cenário 2](#cenário-2)
-	- [Load](#load-1)
-	- [Busca de dados](#busca-de-dados-1)
-	- [Manutenção](#manutenção-1)
+- [Teste de busca de dados](#teste-de-busca-de-dados)
+- [Manutenção de índices](#manutenção-de-índices)
 - [Comparação entre cenários](#comparação-entre-cenários)
+
+## Cenários
+
+| Cenário | Características | Índices |
+| ------- | --------------- | ------- |
+| 0 | Índices não particionados | PK_Vendas_Id (Clustered, Unique) e IX_Vendas_Created_At (Non-Clustered, Non-Unique) |
+| 1 | Índices particionados | PK_Vendas_Partitioned_One_Id_Created_at (Clustered, Unique) e IX_Vendas_Partitioned_One_Created_At(Non-Clustered, Non-Unique) |
+| 2 | Índice clustered particionado e PK não particionada | PK_Vendas_Partitioned_Two_Id (Non-Clustered, Unique) e IX_Vendas_Partitioned_Two_Id_Created_At (Clustered) |
+
 
 ## Preparando o ambiente
 
@@ -19,76 +22,122 @@ CREATE DATABASE [LojaParticionada];
 GO
 ```
 
-## Cenário 0 - Dados não particionados
+### Cenário 0
 Inicialmente criamos uma tabela chamada **Vendas** não particionada. Nesse exemplo, estamos simulando uma PK pelo campo id e um índice NONCLUSTERED auxiliar por created_at (campo que em um cenário real poderia ser usado para um script de expurgo por exemplo).
 
-**Vantagens**:
-- Simplicidade na criação da tabela, manutenção e operação.
+**Passos**:
+- Criar a tabela: [ddl.sql](./scenario_0/ddl.sql)
 
-**Desvantagens**:
-- Perda de performance e maior tempo para tarefas de manutenção a medida que a tabela cresce.
+- Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_0/load.sql)
+
+Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição.
+
+![índices criados](./scenario_0/partitions.png)
 
 
-Vamos criar a tabela:
-```sql
-USE [LojaParticionada];
-GO
+### Cenário 1
+Nessa abordagem criamos a **PK CLUSTERED** composta por id e created_at (onde created_at é o campo particionado). Além disso, criamos também um índice auxiliar somente por created_at, também particionado, permitindo buscas sem o id.
 
-CREATE TABLE [dbo].[Vendas] (
-    [id] INT IDENTITY(1,1) NOT NULL,
-    [cliente] VARCHAR(100) NOT NULL,
-    [valor] DECIMAL(10,2) NOT NULL,
-    [created_at] DATE NOT NULL
-) ON [PRIMARY]
-GO
+**Passos**:
+- Criar a tabela: [ddl.sql](./scenario_1/ddl.sql)
 
--- PK
-ALTER TABLE [dbo].[Vendas]
-ADD CONSTRAINT [PK_Vendas_Id] PRIMARY KEY CLUSTERED ([id])
-ON [PRIMARY]
-GO
+- Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_1/load.sql)
 
--- Índice auxiliar
-CREATE NONCLUSTERED INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas] ([created_at] ASC)
-ON [PRIMARY]
-GO
-```
+Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente às 50.000 linhas do mês.
 
-![tabela criada](./img/cenario_0/table.png)
+![índices criados](./scenario_1/partitions.png)
 
-### Load
-E agora vamos inserir uma massa de dados, representando 50.000 registros por mês usando essa query de [load.sql](./scripts/utils/load.sql).
 
-> Importante alterar o nome da tabela antes de executar.
 
-E agora usando esse [script](./scripts/utils/partitions.sql) conseguimos validar a quantidade de registros salvos em cada um dos índices. Aqui vemos claramente que toso os 600.000 registros foram salvos na mesma partição 1 do índice.
+### Cenário 2
+Nessa abordagem criamos o índice CLUSTERED particionado por id e created_at porém sem ser PRIMARY KEY. E criamos a PRIMARY KEY como NONCLUSTERED, para garantir unicidade, porém sem adicionar ao particionamento.
 
-> Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição.
+**Passos**:
+- Criar a tabela: [ddl.sql](./scenario_2/ddl.sql)
 
-![índices criados](./img/cenario_0/partitions.png)
+- Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_2/load.sql)
 
-### Busca de dados
-Com essa abordagem, quanto mais registros temos na tabela, mais os índices crescerão e mais custoso será para o banco de dados realizar qualquer operação nessa massa de dados.
+Como estamos criando o índice clustered particionado mas a PK não, vemos que para o índice particionado temos 50.000 registros em cada partição, porém a PK não particionada recebe todas as 600.000 linhas.
 
-Operações de **index_seek** nesses dados talvez não serão tão perceptíveis, pois o banco conseguirá obter os dados de forma eficiente na maioria das vezes. Porém, operação de **key lookup** ou **index scan** podem ser bastante custosas.
+![índices criados](./scenario_2/partitions.png)
+
+## Teste de busca de dados
+
+### Cenário 0
+
+Com essa abordagem, quanto mais registros temos na tabela, mais os índices crescerão e mais custoso será para o banco de dados realizar operações de leitura.
+
+Operações de **index_seek** nesses dados talvez não serão tão perceptíveis, pois o banco conseguirá obter os dados de forma eficiente na maioria das vezes. Porém, operações de **key lookup** ou **index scan** podem ser bastante custosas.
 
 Aqui temos um exemplo de uma busca pelo campo created_at. Veja que mesmo executando duas operações normalmente eficientes, que são o index_seek e o key_lookup, ainda assim, devido à quantidade total de registros, o banco precisou fazer 5.411 *logical reads*.
 
-![resultado da busca pelo campo created_at](./img/cenario_0/busca_created_at.png)
+![resultado da busca pelo campo created_at](./scenario_0/busca_created_at.png)
 
-![resultado das statistics na busca pelo campo created_at](./img/cenario_0/busca_created_at_statistics.png)
+![resultado das statistics na busca pelo campo created_at](./scenario_0/busca_created_at_statistics.png)
 
-Lembrando que o key lookup acontece pois o index seek é feito no índice NONCLUSTERED que não possui todos os campos da projeção, e por isso ele precisa realizar um key lookup no índice CLUSTERED para buscar os dados faltantes. Em um cenário onde o filtro consegue realizar um index seek diretamente no índice CLUSTERED, essa busca será muito mais eficiente e sem muito logical reads mesmo uma tabela não particionada. Como é o exemplo que eu aplico um **filtro pelo campo id** (PK clusterizada).
+Lembrando que o key lookup acontece pois o index seek é feito no índice NONCLUSTERED que não possui todos os campos da projeção, e por isso ele precisa realizar um key lookup no índice CLUSTERED para buscar os dados faltantes. Em um cenário onde o filtro consegue realizar um index seek diretamente no índice CLUSTERED, essa busca será muito mais eficiente mesmo para essa tabela não particionada. Conforme exemplo abaixo filtrando pelo campo id (PK clusterizada).
 
-![resultado da busca pelo campo id](./img/cenario_0/busca_id.png)
+![resultado da busca pelo campo id](./scenario_0/busca_id.png)
 
-![resultado das statistics na busca pelo campo id](./img/cenario_0/busca_id_statistics.png)
+![resultado das statistics na busca pelo campo id](./scenario_0/busca_id_statistics.png)
 
-### Manutenção
-A manutenção dos índices, reorganize/rebuild, pode ser feita por partição (quando existe particionamento).
-Como a tabela do nosso exemplo não é particionado, a tarefa de REORGANIZE/REBUILD precisa reescrever/varrer todo o índice (quanto maior o índice, mais demorado e custoso será o processo).
+### Cenário 1
+Com essa abordagem temos duas possibilidade de filtro WHERE para uma busca eficiente dos dados:
+- usando campos id e created_at
+- somente campo created_at
 
-![fragmentação dos índices da tabela Vendas](./img/cenario_0/fragmentacao_dos_indices.png)
+A busca pelos campos **id e created_at** irá realizar um index seek no índice clustered (que também é PK). A busca consegue executar de forma eficiente pois contém ambos campos do índice, assim conseguindo realizar a busca em uma única partição. Mesmo que a tabela tenha dezenas de partições, a busca será realizada somente em uma delas.
+
+![resultado da busca pelos campos id e created_at](./scenario_1/busca_id_e_created_at.png)
+
+Além disso, note que conseguimos buscar os dados de forma eficiente mesmo usando o * na projeção. Isso é possível pois como a busca está sendo realizada no índice CLUSTERED, temos os dados do nível folha no mesmo índice.
+
+Já a busca pelo campo **created_at** também será relativamente eficiente. Note que como podemos ter N registros para um mesmo created_at, tem uma grande possibilidade do banco realizar um index scan para essa busca. A vantagem aqui é que como o índice é particionado e estamos buscando por um único dia, o SQL Server irá varrer uma única partição (nesse exemplo varrendo 50.000 registros ao invés dos 600.000 que existem em toda a tabela).
+
+![resultado da busca pelo campo created_at](./scenario_1/busca_created_at.png)
+
+**IMPORTANTE**: Nesse cenário é extremamente importante tomar cuidado com filtros somente pelo campo id. Isso acontece pois o particionamento é feito pela composição dos campos id e created_at, assim, quando eu realizo uma busca somente pelo campo id o banco precisa percorrer todas as partições (já que o id pode existir em uma ou mais partições).
+
+![resultado da busca pelo campo id](./scenario_1/busca_id.png)
+
+Note que a operação é a mesma, index seek, porém agora ela percorre todas as 13 partições do índice. Isso indica que não é porque a operação é um index seek que ela está otimizada da melhor forma possível. Essa diferença fica ainda mais clara olhando para as métricas de logical reads e scan count quando executo a query buscando somente por id ou buscando por id e created_at.
+
+![comparação entre a busca pelo campo id ou utilizando id e created_at](./scenario_1/comparacao_busca_id_e_created_at.png)
+
+### Cenário 2
+
+Note que apesar da mudança na estrutura dos índices entre o cenário 1 e o cenário 2, a forma que o SQL Server trata cada busca de dados se mantém praticamente a mesma.
+
+A busca pelos campos **id e created_at** é tão eficiente quanto no Cenário 1.
+
+![resultado da busca pelos campos id e created_at](./scenario_2/busca_id_e_created_at.png)
+
+A busca por **created_at** também tem um comportamento parecido de index scan.
+
+![resultado da busca pelo campo created_at](./scenario_2/busca_created_at.png)
+
+Uma **pequena diferença** nesse cenário é na busca pelo campo **id**.
+
+Aqui, dependendo da quantidade de registros, o banco pode escolher por fazer um index seek no índice CLUSTERIZADO e varrer todas as partições (tal qual feito no cenário 1).
+
+![resultado da busca pelo campo id](./scenario_2/busca_id.png)
+
+... ou o SQL Server pode escolher o índice da PK NONCLUSTERED para fazer o filtro. Caso isso aconteça, será feita uma operação de index seek na PK e um Key Lookup com o índice CLUSTERED.
+
+![resultado da busca pelo campo id usando PK](./scenario_2/busca_id_forçando_uso_da_pk.png)
+
+> A busca por id usando a PK não necessariamente será melhor que a primeira opção, porém o interessante aqui é que o SQL Server terá esse recurso caso necessário.
+
+
+## Manutenção de índices
+
+A manutenção dos índices, reorganize/rebuild, pode ser feita por partição (quando existe particionamento). Caso não exista particionamento, todo o índice precisa ser percorrido para realizar esta operação.
+
+### Cenário 0
+
+Como a tabela deste cenário não é particionada, a tarefa de REORGANIZE/REBUILD precisa reescrever/varrer todo o índice (quanto maior o índice, mais demorado e custoso será o processo).
+
+![fragmentação dos índices da tabela Vendas](./scenario_0/fragmentacao_dos_indices.png)
 
 ```sql
 ALTER INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas]
@@ -96,96 +145,21 @@ REBUILD WITH (FILLFACTOR = 90, SORT_IN_TEMPDB = ON, ONLINE = ON)
 GO
 ```
 
-![resultado do rebuild](./img/cenario_0/resultado_do_rebuild.png)
+![resultado do rebuild](./scenario_0/resultado_do_rebuild.png)
 
+Aqui podemos ver também que o index scan realizado teve que ler todos os 600.000 registros da tabela (quanto maior a tabela, mais lento será a operação).
 
-## Cenário 1
-Nessa abordagem criamos a **PK CLUSTERED** composta por id e created_at (onde created_at é o campo particionado). Além disso, criamos também um índice auxiliar somente por created_at, também particionado, permitindo buscas sem o id.
+![índice scan performado no rebuild do índice não particionado](./scenario_0/index_scan_no_rebuild.png)
 
-**Vantagens**:
-- Ambos índices são particionados. Otimizando consultas da aplicação e manutenção de índice.
+> Note também que como nós particionamos os dois índices da tabela, o mesmo que acontece com o índice *IX_Vendas_Partitioned_One_Created_At* pode ser aplicado também ao índice *PK_Vendas_Partitioned_One_Id_Created_at*.
 
-**Desvantagens**:
-- Não temos um controle de unicidade para o campo o "id". Na prática, podemos ter dois "id" iguais desde que a created_at seja diferente.
+### Cenário 1
 
-Vamos criar a tabela:
-```sql
-USE [LojaParticionada];
-GO
+Já no caso de uma tabela com os índices particionados, podemos ver somente uma fração dos registros em cada partição. Isso significa também que podemos realizar o REBUILD ou o REORGANIZE de uma única partição, ou em todas, conforme necessidade.
 
-CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
-AS RANGE RIGHT FOR VALUES (
-    '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
-    '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
-	'2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
-);
-GO
+![fragmentação dos índices da tabela Vendas_Partitioned_One](./scenario_1/fragmentacao_dos_indices.png)
 
-CREATE PARTITION SCHEME [ps_VendasPorMes]
-AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY]);
-GO
-
-CREATE TABLE [dbo].[Vendas_Partitioned_One] (
-    [id] INT IDENTITY(1,1) NOT NULL,
-    [cliente] VARCHAR(100) NOT NULL,
-    [valor] DECIMAL(10,2) NOT NULL,
-    [created_at] DATE NOT NULL
-) ON [ps_VendasPorMes] ([created_at])
-GO
-
--- Pk clusterizada e particionada
-ALTER TABLE [dbo].[Vendas_Partitioned_One]
-ADD CONSTRAINT [PK_Vendas_Partitioned_One_Id_Created_at] PRIMARY KEY CLUSTERED ([id], [created_at])
-ON [ps_VendasPorMes] ([created_at])
-GO
-
--- Índice auxiliar também particionado para permitir buscar somente por created_at
-CREATE NONCLUSTERED INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] ([created_at] ASC)
-ON [ps_VendasPorMes] ([created_at])
-GO
-```
-
-![tabela criada](./img/cenario_1/table.png)
-
-### Load
-E agora vamos inserir uma massa de dados, representando 50.000 registros por mês usando essa query de [load.sql](./scripts/utils/load.sql).
-
-> Importante alterar o nome da tabela antes de executar.
-
-E agora usando esse [script](./scripts/utils/partitions.sql) conseguimos validar as partições criadas para cada um dos índices e a quantidade de registros que temos em cada um. Aqui vemos claramente que temos 50.000 registros inseridos em cada uma das partições.
-
-> A partição 1 de cada índice é criada automaticamente pelo SQL Server para os casos foram do range definido.
-
-![índices criados](./img/cenario_1/partitions.png)
-
-### Busca de dados
-Com essa abordagem temos duas possibilidade de filtro WHERE para uma busca eficiente dos dados:
-- usando campos id e created_at
-- somente campo created_at
-
-A busca pelos campos id e created_at irá realizar um index seek no índice clustered (que também é PK). A busca consegue executar de forma eficiente pois contém ambos campos do índice, assim conseguindo realizar a busca em uma única partição. Mesmo que a tabela tenha centenas de partições, a busca será realizada somente em uma delas.
-
-![resultado da busca pelos campos id e created_at](./img/cenario_1/busca_id_e_created_at.png)
-
-Além disso, note que conseguimos buscar os dados de forma eficiente mesmo usando o * na projeção. Isso é possível pois como a busca está sendo realizada no índice CLUSTERED, temos todos os dados da tabela ali.
-
-Já a busca pelo campo created_at também será eficiente, as duas diferenças principais aqui é a quantidade de registros retornada, que pode ser enorme já que eu posso ter N vendas em um mesmo dia, e também a questão da projeção. Ao contrário de um seek em um índice CLUSTERED que tem todos os dados da tabela, a busca somente pelo campo created_at está utilizando o índice NONCLUSTERED [IX_Vendas_Created_At]. Assim, dependendo dos campos adicionados na projeção o banco terá que fazer um key lookup na PK (porém mesmo assim a query será eficiente, ambas operações no plano de execução acessarão somente a partição que corresponde ao mês em questão).
-
-![resultado da busca pelo campo created_at](./img/cenario_1/busca_created_at.png)
-
-**IMPORTANTE**: Nesse cenário é extremamente importante tomar cuidado com filtros somente pelo campo id. Isso acontece pois eu não tenho unicidade para o id, já que a PK é composta entre id e created_at. Por conta disso, se eu aplicar um filtro usando somente o campo id, o banco de dados terá de percorrer todas as partições.
-
-![resultado da busca pelo campo id](./img/cenario_1/busca_id.png)
-
-> Note que a operação é a mesma, index seek, porém agora percorrendo todas as 13 partições do índice ao invés de percorrer somente uma.
-
-Essa diferença fica ainda mais clara olhando para as métricas de logical reads e scan count quando executo a query buscando somente por id ou buscando por id e created_at.
-
-![comparação entre a busca pelo campo id ou utilizando id e created_at](./img/cenario_1/comparacao_busca_id_e_created_at.png)
-
-### Manutenção
-
-![fragmentação dos índices da tabela Vendas](./img/cenario_1/fragmentacao_dos_indices.png)
+Aqui temos os comandos para realizar o REBUILD em cada uma das partições.
 
 ```sql
 ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 1 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
@@ -203,78 +177,57 @@ ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_
 ALTER INDEX [IX_Vendas_Partitioned_One_Created_At] ON [dbo].[Vendas_Partitioned_One] REBUILD PARTITION = 13 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
 ```
 
-> Comparação com o comando do índice não particionado: `ALTER INDEX [IX_Vendas_Created_At] ON [dbo].[Vendas] REBUILD WITH (FILLFACTOR = 90, SORT_IN_TEMPDB = ON, ONLINE = ON) `
+Note que ao executar os comandos acima temos um tempo de execução para cada partição do que comparado com o exemplo do índice não particionado.
 
-![resultado do rebuild](./img/cenario_1/resultado_do_rebuild.png)
+![resultado do rebuild](./scenario_1/resultado_do_rebuild.png)
 
-Note que o REBUILD de cada partição é muito mais eficiente, sendo mais rápido e utilizando menos logical reads que o rebuild de todo o índice.
-Além disso, analisando o plano de execução vemos que o index scan performado acessa somente a partição desejado, assim, varrendo uma quantidade menor de registros e tendo um custo menor.
+Veja também que o REBUILD de cada partição é muito mais eficiente, sendo mais rápido e necessitando de menos logical reads comparado ao rebuild de todo o índice.
 
-![comparação do index scan no rebuild](./img/cenario_1/comparacao_index_scan_no_rebuild.png)
+Além disso, analisando o plano de execução vemos que o index scan performado acessa somente a partição desejada, assim, varrendo uma quantidade menor de registros e tendo um custo menor.
 
-## Cenário 2
-Nessa abordagem criamos o índice CLUSTERED particionado por id e created_at porém sem ser PRIMARY KEY. E criamos a PRIMARY KEY como NONCLUSTERED, para garantir unicidade, porém sem adicionar ao particionamento.
+![comparação do index scan no rebuild](./scenario_1/comparacao_index_scan_no_rebuild.png)
 
-**Vantagens**:
-- Conseguimos garantir unicidade do campo "id". Isso pode ser útil por exemplo caso a PK fosse CPF.
+> Note também que como nós particionamos os dois índices da tabela, o mesmo que acontece com o índice *IX_Vendas_Partitioned_One_Created_At* pode ser aplicado também ao índice *PK_Vendas_Partitioned_One_Id_Created_at*.
 
-**Desvantagens**:
-- A PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em tarefas de de índice (reorganize e rebuild).
 
-Vamos criar a tabela:
+### Cenário 2
+
+Comparando cenário 2 com cenário 1, a manutenção do índice CLUSTERED permanece a mesma.
+
+Isso porque o índice está particionada da mesma forma em ambos cenários. A grande diferença está no índice da PK, que neste cenário não está particionado.
+
+![fragmentação dos índices da tabela Vendas_Partitioned_Two](./scenario_2/fragmentacao_dos_indices.png)
+
 ```sql
-
-USE [LojaParticionada];
-GO
-
-CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
-AS RANGE RIGHT FOR VALUES (
-    '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
-    '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
-	'2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
-);
-GO
-
-CREATE PARTITION SCHEME [ps_VendasPorMes]
-AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY]);
-GO
-
-CREATE TABLE [dbo].[Vendas_Partitioned_Two] (
-    [id] INT IDENTITY(1,1) NOT NULL,
-    [cliente] VARCHAR(100) NOT NULL,
-    [valor] DECIMAL(10,2) NOT NULL,
-    [created_at] DATE NOT NULL
-) ON [ps_VendasPorMes] ([created_at])
-GO
-
--- Índice clusterizado e particionado
-CREATE CLUSTERED INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] ([id], [created_at])
-ON [ps_VendasPorMes]([created_at])
-GO
-
--- Índice UNIQUE somente para evitar duplicidade
-ALTER TABLE [dbo].[Vendas_Partitioned_Two] ADD CONSTRAINT [PK_Vendas_Partitioned_Two_Id] PRIMARY KEY NONCLUSTERED ([id] ASC)
-ON [PRIMARY]
-GO
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 1 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 2 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 3 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 4 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 5 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 6 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 7 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 8 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 9 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 10 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 11 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 12 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+ALTER INDEX [IX_Vendas_Partitioned_Two_Id_Created_At] ON [dbo].[Vendas_Partitioned_Two] REBUILD PARTITION = 13 WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
 ```
 
-![tabela criada](./img/cenario_2/table.png)
+Como a PK não está particionada, caso um REBUILD/REORGANIZE seja necessário, o SQL Server precisa percorrer todo o índice tal qual no cenário 0.
 
-### Load
-E agora vamos inserir uma massa de dados nessa tabela, tal qual fizemos no cenário 1 (50K registros por mês).
+```sql
+ALTER INDEX [PK_Vendas_Partitioned_Two_Id] ON [dbo].[Vendas_Partitioned_Two] REBUILD WITH (SORT_IN_TEMPDB = ON, ONLINE = ON)
+```
 
-Veja que neste cenário, diferentemente do cenário anterior, o índice NONCLUSTERED da PK não é particionado. Por isso, enquanto o índice clustered possui 50.000 registros em cada partição, o índice da PK possui uma única partição com todos os 600.000 registros.ram do range definido.
+![index scan no rebuild da PK não particionada](./scenario_2/index_scan_no_rebuild_pk.png)
 
-![índices criados](./img/cenario_2/partitions.png)
-
-### Busca de dados
-TO DO
-
-### Manutenção
-TO DO
 
 ## Comparação entre cenários
-TO DO
 
 Principal vantagem na busca, operações de index scan serão mais rápidas no particionamento quando feitas em uma única partição.
-
+| Cenário | Características           | Vantagem            | Desvantagem         |
+| ------- | ------------------------- | ------------------- | ------------------- |
+| 0       | Índices não particionados | Simplicidade na criação, manutenção e operação | Perda de performance e maior tempo para tarefas de manutenção a medida que a tabela cresce |
+| 1       | Índices particionados | Ganho de performance em consultas e manutenção de índice | Não temos um controle de unicidade para o campo o "id". Na prática, podemos ter dois "id" iguais desde que a created_at seja diferente |
+| 2       | Índice clustered particionado e PK não particionada | Conseguimos garantir unicidade do campo "id". Isso pode ser útil por exemplo caso a PK fosse CPF | O índice da PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em reorganize/rebuild de índice |

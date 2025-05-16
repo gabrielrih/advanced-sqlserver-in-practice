@@ -1,6 +1,6 @@
-'''
+/*
     Verifica os índices/partições fragmentados e retorna já o comando para desfragmentar
-'''
+*/
 DECLARE @MinimumToReorganize AS INT = 0
 DECLARE @MinimumToRebuild AS INT = 1
 
