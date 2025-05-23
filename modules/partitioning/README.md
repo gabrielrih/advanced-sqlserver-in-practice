@@ -7,10 +7,17 @@ Antes de iniciar nesse módulo é importante que você tenha claro os seguintes 
 - Plano de execução: index seek, index scan e key lookup.
 
 ## O que é? 
-TO DO
-Trazer aqui uma visão geral, não focando tanto em SQL Server.
 
-## Benefícios
+**De forma geral...**
+TO DO: Conceito de particionamento como um todo
+
+**No SQL Server...**
+O particionamento divide logicamente uma tabela grande em partes menores (partições), com base em um critério, como datas ou faixas de ID. O SQL Server continua vendo a tabela como única, mas internamente sabe que os dados estão organizados por blocos separados. Isso permite operações mais rápidas e manutenção mais fácil (ex: rebuild de índice em uma única partição). Porém, para tirar o melhor proveito da estratégia, é importante que o plano de execução consiga eliminar partições não necessárias, ou seja, evitar busca de dados em todas as partições (partition elimination).
+
+## Vantagens
+- Performance
+- Manutenção
+- Arquivamento
 TO DO
 
 [See](https://learn.microsoft.com/en-us/sql/relational-databases/partitions/partitioned-tables-and-indexes?view=sql-server-ver16#benefits-of-partitioning)

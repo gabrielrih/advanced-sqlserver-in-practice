@@ -4,6 +4,8 @@
 - [Preparando o ambiente](#preparando-o-ambiente)
 - [Teste de busca de dados](#teste-de-busca-de-dados)
 - [Manutenção de índices](#manutenção-de-índices)
+- [House Keeping e arquivamento](#house-keeping-e-arquivamento)
+- [Adicionando novas partições](#adicionando-novas-partições)
 - [Comparação entre cenários](#comparação-entre-cenários)
 
 ## Cenários
@@ -223,11 +225,111 @@ ALTER INDEX [PK_Vendas_Partitioned_Two_Id] ON [dbo].[Vendas_Partitioned_Two] REB
 ![index scan no rebuild da PK não particionada](./scenario_2/index_scan_no_rebuild_pk.png)
 
 
+## House Keeping e arquivamento
+
+O processo de house keeping ou arquivamento dos dados para o nosso cenário, pode ser tratada pelo próprio campo **created_at**.
+
+### Cenário 0
+Para um **expurgo de dados**, uma estratégia de DELETE pode ser aplicado. Contudo, esse processo pode ser lento dependendo da quantidade de registros. Quanto mais registros, mais lento será o processo. Além disso, esse processo acaba fragmentando os índices, usa bastante o arquivo de log além de realizar lock (podendo afetar desempenho da aplicação).
+
+```sql
+DELETE FROM Vendas WHERE created_at <= '2025-01-31'
+```
+
+Quanto à **arquivamento**, uma estratégia com o uso de CRUD, assim como o expurgo, também precisa ser adotada. Nesse caso, podendo ter um INSERT a partir de um SELECT de uma tabela para outra.
+
+```sql
+INSERT INTO Vendas_Historico
+SELECT cliente, valor, created_at FROM Vendas WHERE created_at <= '2025-01-31'
+```
+
+> Ou ainda uma estratégia usando [MERGE](https://learn.microsoft.com/pt-br/sql/t-sql/statements/merge-transact-sql?view=sql-server-ver16) poderia ser usada.
+
+De toda forma, ambas abordagens ficam mais lentas conforme a quantidade de dados aumenta.
+
+### Cenário 1 e 2
+Já para os cenários com particionamento, a estratégia de **expurgo de dados** e **arquivamento** pode ser realizada através de um comando DDL que basicamente move a partição de uma tabela para outra.
+
+Para isso, você precisa de uma tabela secundário com a mesma estrutura da tabela original. Portanto, criei uma nova tabela com a mesma estrutura e os mesmos índices da **Vendas_Partitioned_One**, porém com o nome **Vendas_Partitioned_One_Purge** ([ddl.sql](./scenario_1/ddl.sql)).
+
+Tendo a tabela nova criada você pode mover uma determinada partição da tabela original para a tabela auxiliar. Esse comando é praticamente instantâneo independentemente da quantidade de registros.
+
+```sql
+ALTER TABLE [Vendas_Partitioned_One]
+SWITCH PARTITION 2 TO [Vendas_Partitioned_One_Purge] PARTITION 2
+```
+
+Feito isso, você tem pode decidir se quer manter os dados na tabela **Vendas_Partitioned_One_Purge** por questão de histórico ou se quer expurgar. Se optar pelo expurgo, uma alternativa é utilizar um simples TRUNCATE TABLE:
+
+```sql
+TRUNCATE TABLE [Vendas_Partitioned_One_Purge]
+GO
+```
+
+Note aqui que a grande diferença entre tabela particionada e não particionada para questão de arquivamento e expurgo de dados é que tabela não particionada se usa muito comandos DML enquanto que no cenário particionado usamos basicamente DDL (mais eficiente).
+
+## Adicionando novas partições
+Podemos adicionar novas partições de duas forma:
+- ONLINE
+- OFFLINE
+
+**ONLINE**
+Para possibilitar a execução da forma online, o PARTITION SCHEMA deve ter slots disponíveis apontando para filegroup. Nesse caso, baseado no exemplo do partition function abaixo
+
+```sql
+CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
+AS RANGE RIGHT FOR VALUES (
+    '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
+    '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
+	'2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
+)
+GO
+```
+
+... podemos executar o comando abaixo de forma ONLINE para adicionar a nova partição sem impactar o correto funcionamento do banco de dados:
+
+```sql
+ALTER PARTITION FUNCTION pf_VendasPorMes() SPLIT RANGE ('2026-01-01')
+```
+
+**OFFLINE**
+Pode ser que não tenhamos slots suficientes no PARTITION SCHEMA. Se isso acontecer, a única forma de criar novas partições é criar uma nova tabela, partition schema e partition function e migrar os dados. Mas não se desespere, com a alternativa do SWITCH PARTITION esse processo é bastante rápido de realizar com um downtime mínimo.
+
+Imagine então que a gente crie uma nova PARTITION FUNCTION adicionando também todos os meses de 2026 (além dos já existentes de 2025). Também criamos uma PARTITION SCHEMA para acomodar essas partições. Agora criamos a tabela **Vendas_Partitioned_One_New** com a mesma estrutura da original porém usando o partition schema e partition function novo.
+
+Agora, com a aplicação parada, nós movemos todas as partições atuais para a nova tabela e ao final renomeamos a tabela:
+
+```sql
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 1 TO [Vendas_Partitioned_One_New] PARTITION 1
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 2 TO [Vendas_Partitioned_One_New] PARTITION 2
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 3 TO [Vendas_Partitioned_One_New] PARTITION 3
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 4 TO [Vendas_Partitioned_One_New] PARTITION 4
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 5 TO [Vendas_Partitioned_One_New] PARTITION 5
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 6 TO [Vendas_Partitioned_One_New] PARTITION 6
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 7 TO [Vendas_Partitioned_One_New] PARTITION 7
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 8 TO [Vendas_Partitioned_One_New] PARTITION 8
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 9 TO [Vendas_Partitioned_One_New] PARTITION 9
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 10 TO [Vendas_Partitioned_One_New] PARTITION 10
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 11 TO [Vendas_Partitioned_One_New] PARTITION 11
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 12 TO [Vendas_Partitioned_One_New] PARTITION 12
+ALTER TABLE [Vendas_Partitioned_One] SWITCH PARTITION 13 TO [Vendas_Partitioned_One_New] PARTITION 13
+
+EXEC sp_rename 'dbo.Vendas_Partitioned_One', 'Vendas_Partitioned_One_Old'
+GO
+EXEC sp_rename 'dbo.Vendas_Partitioned_One_New', 'Vendas_Partitioned_One'
+GO
+```
+
+Ao final teremos o cenário conforme imagem abaixo, dados já existentes usando mesmas partições anteriores e novas partições zeradas.
+
+![novas partições](./scenario_1/novas_partitions.png)
+
+
+
 ## Comparação entre cenários
 
-Principal vantagem na busca, operações de index scan serão mais rápidas no particionamento quando feitas em uma única partição.
 | Cenário | Características           | Vantagem            | Desvantagem         |
 | ------- | ------------------------- | ------------------- | ------------------- |
-| 0       | Índices não particionados | Simplicidade na criação, manutenção e operação | Perda de performance e maior tempo para tarefas de manutenção a medida que a tabela cresce |
-| 1       | Índices particionados | Ganho de performance em consultas e manutenção de índice | Não temos um controle de unicidade para o campo o "id". Na prática, podemos ter dois "id" iguais desde que a created_at seja diferente |
-| 2       | Índice clustered particionado e PK não particionada | Conseguimos garantir unicidade do campo "id". Isso pode ser útil por exemplo caso a PK fosse CPF | O índice da PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em reorganize/rebuild de índice |
+| 0       | Índices não particionados | Simplicidade na criação, manutenção e operação | Pouco escalabilidade: Perdemos performance e tarefas de manutenção de tornam cada vez mais lentas |
+| 1       | Índices particionados | Ganho de performance em consultas e manutenções | Não temos um controle de unicidade para o campo o "id". Na prática, podemos ter dois "id" iguais desde que a created_at seja diferente. OBS: Se a aplicação controla a unicidade essa questão é irrelevante |
+| 2       | Índice clustered particionado e PK não particionada | Conseguimos garantir unicidade do campo "id". Isso pode ser útil por exemplo caso a PK for CPF | O índice da PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em reorganize/rebuild de índice |
