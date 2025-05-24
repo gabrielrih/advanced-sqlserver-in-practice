@@ -10,6 +10,8 @@
 
 ## Cenários
 
+Estamos simulando um **Sistema de Vendas**. Nesse sentido, a maioria das buscas e controles se dá pelo escopo de data da venda. Nesse caso, a maioria das queries performadas no banco de dados usa o campo de **created_at** na sua busca.
+
 | Cenário | Características | Índices |
 | ------- | --------------- | ------- |
 | 0 | Índices não particionados | PK_Vendas_Id (Clustered, Unique) e IX_Vendas_Created_At (Non-Clustered, Non-Unique) |
