@@ -1,3 +1,6 @@
+USE [SistemaEducativo]
+GO
+
 CREATE TABLE [dbo].[Students] (
     tenant_id INT NOT NULL,
     student_id INT NOT NULL,
@@ -8,12 +11,12 @@ CREATE TABLE [dbo].[Students] (
 GO
 
 -- PK
--- Valores de tenant_id e student_id é controlado pela aplicação
+-- Valores de tenant_id e student_id são controlados pela aplicação
 -- Valor sequencial para evitar muita fragmentação
 ALTER TABLE [dbo].[Students]
 ADD CONSTRAINT [PK_Students_TenantId_StudentId] PRIMARY KEY CLUSTERED ([tenant_id], [student_id])
 GO
 
--- Índice auxiliar busca mais comum no sistema
+-- Índice auxiliar (Busca mais comum no sistema)
 CREATE NONCLUSTERED INDEX [IX_Students_TenantId_FullName] ON [dbo].[Students] ([tenant_id] ASC, [full_name] ASC)
 GO
