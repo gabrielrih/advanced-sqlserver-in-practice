@@ -1,5 +1,0 @@
-SOBRE PARTICIONAMENTO...
-
-
-- Usando particionamento por tenant, como faço para particionar quando a primeira letra do tenant começa com 1 por exemplo?
-Pra não precisar deixar tenants com nomes fixos.
