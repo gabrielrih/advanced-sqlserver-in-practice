@@ -1,9 +1,14 @@
 # Particionamento
 
+- [Pré requisitos](#pré-requisitos)
+- [O que é?](#o-que-é)
+- [Vantagens](#vantagens)
+- [Componentes e conceitos](#componentes-e-conceitos)
+- [Exemplos práticos](#exemplos-práticos)
+- [Boas práticas e cuidados](#boas-práticas-e-cuidados)
+
 ## Pré requisitos
-Antes de iniciar nesse módulo é importante que você tenha claro os seguintes conceitos:
-- [Indexes](../indexes/README.md)
-- [Execution plan](../execution_plan/README.md)
+Antes de iniciar nesse módulo é importante que você tenha claro os conceitos básicos sobre [indexes](../indexes/README.md).
 
 ## O que é? 
 O particionamento divide logicamente uma tabela grande em partes menores (partições), com base em um critério, como datas ou faixas de ID. O SQL Server continua vendo a tabela como única, mas internamente sabe que os dados estão organizados por blocos separados. Isso permite operações mais rápidas e manutenção mais fácil (ex: rebuild de índice em uma única partição). Porém, para tirar o melhor proveito da estratégia, é importante que o plano de execução consiga eliminar partições não necessárias, ou seja, evitar busca de dados em todas as partições (partition elimination).
@@ -40,6 +45,3 @@ O particionamento divide logicamente uma tabela grande em partes menores (parti�
         - Colunas pouco usadas em filtros de consulta: nunca usadas no WHERE.
 - Operações de index scan serão mais rápidas no particionamento quando feitas em uma única partição. Evite buscas por range que precisem acessar múltiplas partições.
 - Manter ao máximo os índices secundários criados alinhados a coluna particionada.
-
-## Referências
-- [Documentação oficial](https://learn.microsoft.com/en-us/sql/relational-databases/partitions/partitioned-tables-and-indexes?view=sql-server-ver16)

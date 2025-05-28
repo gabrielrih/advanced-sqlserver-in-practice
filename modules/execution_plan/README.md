@@ -7,7 +7,5 @@ O plano de execução é o caminho que o SQL Server escolhe para executar sua qu
 - Como o otimizador de consultas decide o melhor plano
 - Diferença entre plano estimado e plano real
 - Principais operações (Index Seek, Index Scan, Table Scan, Key Lookup, Nested Loops, etc.)
-- Como visualizar e interpretar um plano no SSMS
-- Importância para análise de performance
 
 TO DO
