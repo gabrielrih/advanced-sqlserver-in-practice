@@ -1,11 +1,11 @@
-CREATE PARTITION FUNCTION [pf_TenantPartition](INT)
+CREATE PARTITION FUNCTION [pf_TenantPartition_ByRange](INT)
 AS RANGE LEFT FOR VALUES (
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+    10, 20, 30, 40, 50, 60, 70, 80, 90, 100
 )
 GO
 
-CREATE PARTITION SCHEME [ps_TenantPartition]
-AS PARTITION [pf_TenantPartition] ALL TO ([PRIMARY])
+CREATE PARTITION SCHEME [ps_TenantPartition_ByRange]
+AS PARTITION [pf_TenantPartition_ByRange] ALL TO ([PRIMARY])
 GO
 
 CREATE TABLE [dbo].[Students_Partitioned_One] (
@@ -13,21 +13,20 @@ CREATE TABLE [dbo].[Students_Partitioned_One] (
     [student_id] INT NOT NULL,
     [full_name] VARCHAR(100) NOT NULL,
     [registration_date] DATE NOT NULL,
-    [status] VARCHAR(10) NOT NULL DEFAULT 'Ativo' CHECK (status IN ('Ativo', 'Inativo', 'Trancado')),
-    [tenant_partition] AS ABS(CHECKSUM(tenant_id)) % 10 PERSISTED NOT NULL
+    [status] VARCHAR(10) NOT NULL DEFAULT 'Ativo' CHECK (status IN ('Ativo', 'Inativo', 'Trancado'))
 )
-ON [ps_TenantPartition]([tenant_partition])
+ON [ps_TenantPartition_ByRange]([tenant_id])
 GO
 
 -- Pk clusterizada
 -- Valores de tenant_id e student_id é controlado pela aplicação
 -- Valor sequencial para evitar muita fragmentação
 ALTER TABLE [dbo].[Students_Partitioned_One]
-ADD CONSTRAINT [PK_Students_Partitioned_One_TenantId_StudentId] PRIMARY KEY CLUSTERED ([tenant_id], [tenant_partition], [student_id])
-ON [ps_TenantPartition] ([tenant_partition])
+ADD CONSTRAINT [PK_Students_Partitioned_One_TenantId_StudentId] PRIMARY KEY CLUSTERED ([tenant_id], [student_id])
+ON [ps_TenantPartition_ByRange] ([tenant_id])
 GO
 
 -- Índice auxiliar também particionado para permitir filtrar por full_name
-CREATE NONCLUSTERED INDEX [IX_Students_Partitioned_One_TenantId_FullName] ON [dbo].[Students_Partitioned_One] ([tenant_id] ASC, [tenant_partition] ASC, [full_name] ASC)
-ON [ps_TenantPartition] ([tenant_partition])
+CREATE NONCLUSTERED INDEX [IX_Students_Partitioned_One_TenantId_FullName] ON [dbo].[Students_Partitioned_One] ([tenant_id] ASC, [full_name] ASC)
+ON [ps_TenantPartition_ByRange] ([tenant_id])
 GO
