@@ -35,7 +35,7 @@ Inicialmente criamos uma tabela chamada **Students** não particionada. Nesse ex
 
 - Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_0/load.sql)
 
-Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição.
+Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição: [partitions.sql](./scenario_0/partitions.sql).
 
 ![índices criados](./scenario_0/partitions.png)
 
@@ -66,7 +66,7 @@ AS RANGE LEFT FOR VALUES (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
 
 - Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_1/load.sql)
 
-Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos).
+Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos): [partitions.sql](./scenario_1/partitions.sql).
 
 ![índices criados](./scenario_1/partitions.png)
 
@@ -89,15 +89,47 @@ No nosso exemplo, estamos usando a primeira opção por questão de simplicidade
 
 - Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_2/load.sql)
 
-Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos).
+Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos): [partitions.sql](./scenario_2/partitions.sql).
 
 ![índices criados](./scenario_2/partitions.png)
 
 ## Teste de busca de dados
 TO DO
 
+### Scenario 0
+
+Buscas:
+- tenant_id e client_id (INDEX SEEK pela PK em 1 registro)
+- tenant_id (INDEX SEEK pela PK em 5.000 registros)
+- tenant_id e full_name (equals) (INDEX SEEK pelo IX em 1 registro + KEY LOOKUP pela PK em 1 registro)
+- full_name (INDEX SCAN pelo IX varrendo 500.000 registros + KEY LOOKUP pela PK em 1 registro)
+- student_id (INDEX SCAN pelo IX varrendo 500.000 linhas + KEY LOOKUP pela PK em 100 registros)
+
+### Scenario 1
+
+Buscas:
+- tenant_id e client_id (INDEX SEEK pela PK em 1 registro - Acessa 1 partição) - Não vi diferença da performance da query na Students, testar talvez com um volume maior
+- tenant_id (INDEX SEEK pela PK em 5.000 registros - Acessa 1 partição) - CPU e I/O cost parecem ser um pouco maior aqui do que no cenário sem particionamento
+- tenant_id e full_name (equals) (INDEX SEEK pelo IX em 1 registro + KEY LOOKUP pela PK em 1 registro - acessa 1 partição em ambos casos) - Não vi diferença da performance da query na Students, testar talvez com um volume maior
+- full_name (INDEX SCAN pelo IX varrendo 500.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro)
+- student_id  (INDEX SCAN pelo IX varrendo 500.000 linhas e todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições) 
+
+### Scenario 2 
+TO DO
 
 ## Comparação entre cenários
+
+| Operação                                | Tabela Normal        | Tabela Particionada (`tenant_id`) | Vantagem Real |
+|----------------------------------------|----------------------|-----------------------------------|----------------|
+| `SELECT` com `tenant_id = X`           | Lê toda a tabela     | Eliminação de partição            | ✅ Sim         |
+| `DELETE` com `tenant_id = X`           | Lê toda a tabela     | Eliminação de partição            | ✅ Sim         |
+| `UPDATE` com `tenant_id = X`           | Lê toda a tabela     | Eliminação de partição            | ✅ Sim         |
+| `SELECT` genérico (`LIKE '%X%'`)       | Lê toda a tabela     | Lê todas as partições             | ❌ Não         |
+| `INSERT` (linha única)                 | Rápido               | Rápido (diferença mínima)         | ⚖️ Igual       |
+| `ALTER INDEX REBUILD`                  | Lento (índice global)| Pode ser feito por partição       | ✅ Sim         |
+| Arquivamento (`SWITCH PARTITION`)      | Complexo             | Rápido e simples                  | ✅ Sim         |
+
+
 
 **Scenario 0 (Sem particionamento)**:
 - Simplicidade na implementação.
