@@ -4,9 +4,9 @@ WITH Tenants AS (
     FROM sys.all_objects
 ),
 
--- Gerar 5.000 alunos para cada tenant (student_id incremental iniciando em 1)
+-- Gerar 50.000 alunos para cada tenant (student_id incremental iniciando em 1)
 StudentsPerTenant AS (
-    SELECT TOP (5000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS student_id
+    SELECT TOP (50000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS student_id
     FROM sys.all_objects a
     CROSS JOIN sys.all_objects b
 )

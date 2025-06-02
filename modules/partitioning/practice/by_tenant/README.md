@@ -24,7 +24,7 @@ CREATE DATABASE [SistemaEducativo];
 GO
 ```
 
-Imagine que uma das maiores tabelas do sistema é a tabela de `Students`. Nosso sistema Multi-Tenant comporta 10.000 instituições com uma média de 5.000 alunos cada. Nos dando uma média de 50.000.000 de linhas na tabela `Students`.
+Imagine que uma das maiores tabelas do sistema é a tabela de `Students`. Neste sistema Multi-Tenant simulamos 100 Instituições com uma média de 50.000 alunos cada. Nos dando uma média de 5.000.000 de linhas na tabela `Students`.
 
 
 ### Cenário 0
@@ -94,28 +94,104 @@ Como estamos criando ambos índices particionados, vemos que cada partição rec
 ![índices criados](./scenario_2/partitions.png)
 
 ## Teste de busca de dados
-TO DO
-
 ### Scenario 0
 
-Buscas:
-- tenant_id e client_id (INDEX SEEK pela PK em 1 registro)
-- tenant_id (INDEX SEEK pela PK em 5.000 registros)
-- tenant_id e full_name (equals) (INDEX SEEK pelo IX em 1 registro + KEY LOOKUP pela PK em 1 registro)
-- full_name (INDEX SCAN pelo IX varrendo 500.000 registros + KEY LOOKUP pela PK em 1 registro)
-- student_id (INDEX SCAN pelo IX varrendo 500.000 linhas + KEY LOOKUP pela PK em 100 registros)
+Com essa abordagem, quanto mais registros temos na tabela, mais os índices crescerão e mais custoso será para o banco de dados realizar operações de leitura.
+
+Operações de index_seek nesses dados talvez não serão tão perceptíveis, pois o banco conseguirá obter os dados de forma eficiente na maioria das vezes. Porém, as operações de index scan podem ser bastante custosas.
+
+**Operações eficientes**:
+- tenant_id e client_id: INDEX SEEK pela PK em 1 registro
+
+```sql
+SELECT * FROM Students where tenant_id = 100 AND student_id = 20
+```
+
+- tenant_id e full_name: INDEX SEEK pelo NONCLUSTERED INDEX em 1 registro + KEY KOOKUP pela PK em 1 registro. *OBS: O key lookup será necessário somente se os campos da projection não estiverem incluídos no índice NONCLUSTERED*
+
+```sql
+SELECT * FROM Students WHERE tenant_id = 100 AND full_name = 'Aluno_20_Tenant_100'
+```
+
+**Operações que terão uma degradação na performance conforme a tabela crescer**:
+
+- tenant_id: INDEX SEEK pela PK. Como a PK é por tenant_id e client_id, se o filtro for somente por tenant_id, o SQL Server terá de varrer todos os registros de um tenant_id (no nosso exemplo 50.000 registros).
+
+```sql
+SELECT * FROM Students WHERE tenant_id = 100 
+```
+
+> Essa operação usa índice, porém pode ser lenta dependendo da quantidade de registros para o tenant_id.
+
+**Operações lentas**:
+- full_name: INDEX SCAN pelo IX varrendo 500.000 registros + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
+
+```sql
+SELECT * FROM Students WHERE full_name = 'Aluno_20_Tenant_100'
+```
+
+- student_id: INDEX SCAN pelo IX varrendo 500.000 linhas + KEY LOOKUP pela PK em 100 registros (retorna 100 registros)
+
+```sql
+SELECT * FROM Students WHERE student_id = 200
+```
 
 ### Scenario 1
 
-Buscas:
-- tenant_id e client_id (INDEX SEEK pela PK em 1 registro - Acessa 1 partição) - Não vi diferença da performance da query na Students, testar talvez com um volume maior
-- tenant_id (INDEX SEEK pela PK em 5.000 registros - Acessa 1 partição) - CPU e I/O cost parecem ser um pouco maior aqui do que no cenário sem particionamento
-- tenant_id e full_name (equals) (INDEX SEEK pelo IX em 1 registro + KEY LOOKUP pela PK em 1 registro - acessa 1 partição em ambos casos) - Não vi diferença da performance da query na Students, testar talvez com um volume maior
-- full_name (INDEX SCAN pelo IX varrendo 500.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro)
-- student_id  (INDEX SCAN pelo IX varrendo 500.000 linhas e todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições) 
+O plano de execução das queries no cenário de particionamento é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas bináries quando houver *partition elimination*.
+
+Por outro lado, operações de scan em múltiplas partições pode ser mais lento do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
+
+**Operações eficientes**:
+- tenant_id e client_id: INDEX SEEK pela PK em 1 registro acessando uma única partição.
+
+```sql
+SELECT * FROM Students_Partitioned_One where tenant_id = 100 AND student_id = 20
+```
+
+- tenant_id e full_name: INDEX SEEK pelo NONCLUSTERED INDEX em 1 registro + KEY KOOKUP pela PK em 1 registro - acessando uma única partição em ambos casos. *OBS: O key lookup será necessário somente se os campos da projection não estiverem incluídos no índice NONCLUSTERED*
+
+```sql
+SELECT * FROM Students_Partitioned_One WHERE tenant_id = 100 AND full_name = 'Aluno_20_Tenant_100'
+```
+
+> A performance das duas queries acima não teve muita diferença comparando com a tabela não particionada.
+
+**Operações que terão uma degradação na performance conforme a tabela crescer**:
+
+- tenant_id: INDEX SEEK pela PK acessando uma única partição. Como a PK é por tenant_id e client_id, se o filtro for somente por tenant_id, o SQL Server terá de varrer todos os registros de um tenant_id (no nosso exemplo 50.000 registros).
+
+```sql
+SELECT * FROM Students_Partitioned_One WHERE tenant_id = 100 
+```
+
+> Esta operação usa índice, contudo ela pode se tornar lenta a medida que a quantidade de Students para um mesmo tenant_id crescer. Apesar disso, como a estrutura desta tabela está particionando por tenant_id, o esforço para varrer esta árvore binário é menor em comparação com o cenário sem particionamento. Por conta disso, nesse exemplo, o `CPU cost` e `IO cost` é menor.
+
+![comparação da busca somente por tenant_id entre ambiente particionado e não particionado](./scenario_1/comparacao_busca_por_tenant_id.png)
+
+
+**Operações lentas**:
+- full_name: INDEX SCAN pelo IX varrendo 500.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
+
+```sql
+SELECT * FROM Students_Partitioned_One WHERE full_name = 'Aluno_20_Tenant_100'
+```
+
+- student_id: INDEX SCAN pelo IX varrendo 500.000 linhas em todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições (retorna 100 registros)
+
+```sql
+SELECT * FROM Students_Partitioned_One WHERE student_id = 200
+```
+
+> Nas duas queries acima, o cenário de particionamento é um pouco mais custoso que no ambiente não particionado. Isso se deve muito pelo fato de necessitar acessar todas as partições. Quando isso acontece à um custo extra no gerenciamento desses acessos multi partições.
 
 ### Scenario 2 
 TO DO
+
+
+
+
+
 
 ## Comparação entre cenários
 
@@ -136,10 +212,12 @@ TO DO
 
 - Recomendado em cenários em que o volume de dados ainda permite que as queries sejam eficientes, ou em cenários em que a busca sem o `tenant_id` é bastante comum.
 
-- Também faz sentido utilizar a abordagem sem particionamento caso a tabela não seja muito utilizada e/ou não seja utilizado nos fluxos críticos da aplicação (que demandam uma maior performance).
+- Também faz sentido utilizar a abordagem sem particionamento caso a tabela não seja muito utilizada nos fluxos críticos da aplicação (que demandam uma maior performance).
 
 **Scenario 1**:
-- O Partition Function por range pode ser útil quando você já tem uma quantidade grande de tenants em uma tabela não particionada e quer migrar esses dados para uma tabela particionada. Assim, você pode estimar de antemão qual é a melhor estratégia de range para que os dados fiquem uniformemente distribuído entre as partições. Isso permite, por exemplo, eu eu cadastre os outliers - tenants que possuem uma quantidade muito acima de alunos - em um partição só para eles. Exemplo onde 1001 e 1002 são outliers:
+- O Partition Function por range pode ser útil quando você já tem uma quantidade grande de tenants em uma tabela não particionada e quer migrar esses dados para uma tabela particionada. Assim, você pode estimar de antemão qual é a melhor estratégia de range para que os dados fiquem uniformemente distribuído entre as partições. Isso permite, por exemplo, cadastrar os *outliers* - tenants que possuem uma quantidade muito acima de alunos - em um partição só para eles.
+
+Exemplo onde 1001 e 1002 são *outliers*:
 
 ```sql
 CREATE PARTITION FUNCTION pf_TenantRange(INT)
@@ -158,12 +236,12 @@ AS RANGE LEFT FOR VALUES (1000, 1001, 1002, 2000, 3000, 4000, 5000, 6000)
 | P8       | 5001 – 6000                |
 | P9       | ≥ 6001
 
-- A criação de novas partições não exige uma redistribição dos dados quando tivermos novos tenants usando a numeração incremental. Quando eu preciso adicionar uma nova partição entre 6000 e 7000 por exemplo.
+- A criação de novas partições não exige uma redistribição dos dados quando tivermos novos tenants usando a numeração incremental. Quando for adicionar uma nova partição entre 6000 e 7000 por exemplo.
 
-- A aplicação não precisa controlar/conhecer nenhum campo extra. Somente com o campo `tenant_id` já é possível realizar o particionamento corretamente além de permitir buscas eficiente.
+- A aplicação não precisa controlar/conhecer nenhum campo extra. Somente com o campo `tenant_id` já é possível realizar o particionamento corretamente.
 
 **Scenario 2**:
-- **Cenário bom quando tivermos uma quantidade uniforme de alunos em cada tenant**: A distribuição de carga dos tenants será uniforme entre as partições. Isso pode ser útil no caso da quantidade de tenant ir aumentando aos poucos (começamos com poucos 10-20 tenants e ir aumentando pouco a pouco). Isso acontece porque os primeiros 10 tenants serão distribuídos um em cada partição; os próximos 10 tenants também serão distribuídos um por partição; ou seja, a cada 10 novos tenants, eu terei uma quantidade igual de tenants em cada partição.
+- **Cenário bom quando tivermos uma quantidade uniforme de alunos em cada tenant**: A distribuição de carga dos tenants será uniforme entre as partições. Isso pode ser útil no caso da quantidade de tenant ir aumentando aos poucos (começamos com poucos tenants e aumentando de forma orgânica). Isso acontece porque os primeiros 10 tenants serão distribuídos um em cada partição; os próximos 10 tenants também serão distribuídos um por partição; ou seja, a cada 10 novos tenants, eu terei uma quantidade igual de tenants em cada partição.
 
 > Veja que embora a quantidade de tenants seja igual entre cada partição, a quantidade de alunos pode variar bastante.
 
@@ -172,4 +250,4 @@ AS RANGE LEFT FOR VALUES (1000, 1001, 1002, 2000, 3000, 4000, 5000, 6000)
 - **A expansão da quantidade de partições neste cenário não é tão simples**: precisaríamos mudar a estrutura da tabela criando um campo novo de CHECKSUM e possivelmente teríamos que mover dados entre as partições. Para reduzir a possibilidade desse problema, seria bom se tivessemos uma expectativa da quantidade máxima de tenants que vamos atingir antes de optar por essa estratégia. Isso auxilia na definição da quantidade de partições necessárias para manter uma boa performance da aplicação.
 
 
-> **CUIDADOS COM AMBAS ABORDAGENS DE PARTICIONAMENTO**: Cada tenant terá uma quantidade X de alunos. Caso eu tenha muitos tenants grandes em uma mesma partição, a distribuição dos dados pode se tornar desigual. Nesse caso, no scenario 1 eu tenho a possibilidade de reorganizar o partition function / scheme e criar uma partição única para aquele tenant; Já no scenario 2, essa possibilidade somente existirá caso a aplicação controle em qual partition o tenant será salvo (já que o controle do SQL Server a partição é definida através do CHECKSUM).
+> **CUIDADOS COM AMBAS ABORDAGENS DE PARTICIONAMENTO**: Cada tenant terá uma quantidade X de alunos. Caso eu tenha muitos tenants grandes em uma mesma partição, a distribuição dos dados pode se tornar desigual. Nesse caso, no scenario 1 eu tenho a possibilidade de reorganizar o partition function / scheme e criar uma partição única para aquele tenant; Já no scenario 2, essa possibilidade somente existirá caso a aplicação controle em qual partition o tenant será salvo.
