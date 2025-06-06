@@ -124,13 +124,13 @@ SELECT * FROM Students WHERE tenant_id = 100
 > Essa operação usa índice, porém pode ser lenta dependendo da quantidade de registros para o tenant_id.
 
 **Operações lentas**:
-- full_name: INDEX SCAN pelo IX varrendo 500.000 registros + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
+- full_name: INDEX SCAN pelo IX varrendo 5.000.000 registros + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
 
 ```sql
 SELECT * FROM Students WHERE full_name = 'Aluno_20_Tenant_100'
 ```
 
-- student_id: INDEX SCAN pelo IX varrendo 500.000 linhas + KEY LOOKUP pela PK em 100 registros (retorna 100 registros)
+- student_id: INDEX SCAN pelo IX varrendo 5.000.000 linhas + KEY LOOKUP pela PK em 100 registros (retorna 100 registros)
 
 ```sql
 SELECT * FROM Students WHERE student_id = 200
@@ -138,9 +138,9 @@ SELECT * FROM Students WHERE student_id = 200
 
 ### Scenario 1
 
-O plano de execução das queries no cenário de particionamento é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas bináries quando houver *partition elimination*.
+O plano de execução das queries no cenário de particionamento é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas binárias quando houver *partition elimination*.
 
-Por outro lado, operações de scan em múltiplas partições pode ser mais lento do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
+Por outro lado, operações de scan em múltiplas partições podem ser mais lentas do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
 
 **Operações eficientes**:
 - tenant_id e client_id: INDEX SEEK pela PK em 1 registro acessando uma única partição.
@@ -155,7 +155,7 @@ SELECT * FROM Students_Partitioned_One where tenant_id = 100 AND student_id = 20
 SELECT * FROM Students_Partitioned_One WHERE tenant_id = 100 AND full_name = 'Aluno_20_Tenant_100'
 ```
 
-> A performance das duas queries acima não teve muita diferença comparando com a tabela não particionada.
+> A performance das duas queries acima não teve diferença comparando com o cenário não particionado.
 
 **Operações que terão uma degradação na performance conforme a tabela crescer**:
 
@@ -171,13 +171,13 @@ SELECT * FROM Students_Partitioned_One WHERE tenant_id = 100
 
 
 **Operações lentas**:
-- full_name: INDEX SCAN pelo IX varrendo 500.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
+- full_name: INDEX SCAN pelo IX varrendo 5.000.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
 
 ```sql
 SELECT * FROM Students_Partitioned_One WHERE full_name = 'Aluno_20_Tenant_100'
 ```
 
-- student_id: INDEX SCAN pelo IX varrendo 500.000 linhas em todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições (retorna 100 registros)
+- student_id: INDEX SCAN pelo IX varrendo 5.000.000 linhas em todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições (retorna 100 registros)
 
 ```sql
 SELECT * FROM Students_Partitioned_One WHERE student_id = 200
@@ -186,11 +186,54 @@ SELECT * FROM Students_Partitioned_One WHERE student_id = 200
 > Nas duas queries acima, o cenário de particionamento é um pouco mais custoso que no ambiente não particionado. Isso se deve muito pelo fato de necessitar acessar todas as partições. Quando isso acontece à um custo extra no gerenciamento desses acessos multi partições.
 
 ### Scenario 2 
-TO DO
+
+Assim como no Scenario 1, o plano de execução das queries é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas binários quando houver *partition elimination*. Por outro lado, operações de scan em múltiplas partições podem ser mais lentas do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
+
+Temos que lembrar também que no scenario 2 temos um campo extra chamado `tenant_partition` para indicar em qual partição os registros estão, nesse caso, sempre que informarmos o valor de `tenant_id` temos que informar também `tenant_partition` para ter uma boa performance.
+
+**Operações eficientes**:
+- tenant_id, tenant_partition e client_id: INDEX SEEK pela PK em 1 registro acessando uma única partição.
+
+```sql
+SELECT * FROM Students_Partitioned_Two where tenant_id = 100 AND tenant_partition = 0 AND student_id = 20
+```
+
+- tenant_id, tenant_partition e full_name: INDEX SEEK pelo NONCLUSTERED INDEX em 1 registro + KEY KOOKUP pela PK em 1 registro - acessando uma única partição em ambos casos. *OBS: O key lookup será necessário somente se os campos da projection não estiverem incluídos no índice NONCLUSTERED*
+
+```sql
+SELECT * FROM Students_Partitioned_Two WHERE tenant_id = 100 AND tenant_partition = 0 AND full_name = 'Aluno_20_Tenant_100'
+```
+
+> A performance das duas queries acima não teve diferença comparando com o cenário não particionado.
+
+**Operações que terão uma degradação na performance conforme a tabela crescer**:
+
+- tenant_id e tenant_partition: INDEX SEEK pela PK acessando uma única partição. Como a PK é por tenant_id, tenant_partition e client_id, se o filtro for somente por tenant_id e tenant_partition, o SQL Server terá de varrer todos os registros de um tenant_id (no nosso exemplo 50.000 registros).
+
+```sql
+SELECT * FROM Students_Partitioned_Two WHERE tenant_id = 100 AND tenant_partition = 0 
+```
+
+> Assim como no cenário 1, neste cenário temos um ganho ainda maior de `CPU cost` e `IO cost`.
 
 
+![comparação da busca somente por tenant_id entre ambientes particionados e o não particionado](./scenario_2/comparacao_busca_por_tenant_id.png)
 
 
+**Operações lentas**:
+- full_name: INDEX SCAN pelo IX varrendo 5.000.000 registros em todas as partições + KEY LOOKUP pela PK em 1 registro (retorna só 1 registro)
+
+```sql
+SELECT * FROM Students_Partitioned_Two WHERE full_name = 'Aluno_20_Tenant_100'
+```
+
+- student_id: INDEX SCAN pelo IX varrendo 5.000.000 linhas em todas as partições + KEY LOOKUP pela PK em 100 registros varrendo todas as partições (retorna 100 registros)
+
+```sql
+SELECT * FROM Students_Partitioned_Two WHERE student_id = 200
+```
+
+> Nas duas queries acima, o cenário de particionamento é um pouco mais custoso que no ambiente não particionado. Isso se deve muito pelo fato de necessitar acessar todas as partições. Quando isso acontece à um custo extra no gerenciamento desses acessos multi partições.
 
 
 ## Comparação entre cenários
