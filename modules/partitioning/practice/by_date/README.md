@@ -34,7 +34,7 @@ Inicialmente criamos uma tabela chamada **Vendas** não particionada. Nesse exem
 
 - Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_0/load.sql)
 
-Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição.
+Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma [única partição](./scenario_0/partitions.sql).
 
 ![índices criados](./scenario_0/partitions.png)
 
@@ -56,7 +56,7 @@ AS RANGE RIGHT FOR VALUES (
 
 - Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_1/load.sql)
 
-Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente às 50.000 linhas do mês.
+Como estamos criando ambos índices particionados, vemos que [cada partição](./scenario_1/partitions.sql) recebeu o equivalente às 50.000 linhas do mês.
 
 ![índices criados](./scenario_1/partitions.png)
 
@@ -70,7 +70,7 @@ Nessa abordagem criamos o índice CLUSTERED particionado por id e created_at por
 
 - Inserir massa de dados: 50.000 registros em cada mês = 600.000 registros ao total de um ano: [load.sql](./scenario_2/load.sql)
 
-Como estamos criando o índice clustered particionado mas a PK não, vemos que para o índice particionado temos 50.000 registros em cada partição, porém a PK não particionada recebe todas as 600.000 linhas.
+Como estamos criando o índice clustered particionado mas a PK não, vemos que para o índice particionado temos 50.000 registros em [cada partição](./scenario_2/partitions.sql), porém a PK não particionada recebe todas as 600.000 linhas.
 
 ![índices criados](./scenario_2/partitions.png)
 
@@ -85,7 +85,9 @@ Operações de **index_seek** nesses dados talvez não serão tão perceptíveis
 Aqui temos um exemplo de uma busca pelo campo created_at. Veja que mesmo executando duas operações normalmente eficientes, que são o index_seek e o key_lookup, ainda assim, devido à quantidade total de registros, o banco precisou fazer 5.411 *logical reads*.
 
 ```sql
-SELECT * FROM Vendas WHERE created_at = '2025-10-10'
+SELECT * FROM Vendas
+WITH(INDEX(IX_Vendas_Created_At))
+WHERE created_at = '2025-10-10'
 ```
 
 ![resultado da busca pelo campo created_at](./scenario_0/busca_created_at.png)
@@ -110,7 +112,7 @@ Com essa abordagem temos duas possibilidade de filtro WHERE para uma busca efici
 A busca pelos campos **id e created_at** irá realizar um index seek no índice clustered (que também é PK). A busca consegue executar de forma eficiente pois contém ambos campos do índice, assim conseguindo realizar a busca em uma única partição. Mesmo que a tabela tenha dezenas de partições, a busca será realizada somente em uma delas.
 
 ```sql
-SELECT * FROM Vendas_Partitioned_one WHERE id = 1200007 and created_at = '2025-01-17'
+SELECT * FROM Vendas_Partitioned_one WHERE id = 1 and created_at = '2025-01-19'
 ```
 ![resultado da busca pelos campos id e created_at](./scenario_1/busca_id_e_created_at.png)
 
@@ -119,14 +121,14 @@ Além disso, note que conseguimos buscar os dados de forma eficiente mesmo usand
 Já a busca pelo campo **created_at** também será relativamente eficiente. Note que como podemos ter N registros para um mesmo created_at, tem uma grande possibilidade do banco realizar um index scan para essa busca. A vantagem aqui é que como o índice é particionado e estamos buscando por um único dia, o SQL Server irá varrer uma única partição (nesse exemplo varrendo 50.000 registros ao invés dos 600.000 que existem em toda a tabela).
 
 ```sql
-SELECT * FROM Vendas_Partitioned_one WHERE created_at = '2025-01-17'
+SELECT * FROM Vendas_Partitioned_one WHERE created_at = '2025-01-19'
 ```
 ![resultado da busca pelo campo created_at](./scenario_1/busca_created_at.png)
 
 **IMPORTANTE**: Nesse cenário é extremamente importante tomar cuidado com filtros somente pelo campo id. Isso acontece pois o particionamento é feito pela composição dos campos id e created_at, assim, quando eu realizo uma busca somente pelo campo id o banco precisa percorrer todas as partições (já que o id pode existir em uma ou mais partições).
 
 ```sql
-SELECT * FROM Vendas_Partitioned_one WHERE id = 60001
+SELECT * FROM Vendas_Partitioned_one WHERE id = 1
 ```
 
 ![resultado da busca pelo campo id](./scenario_1/busca_id.png)
@@ -142,7 +144,7 @@ Note que apesar da mudança na estrutura dos índices entre o cenário 1 e o cen
 A busca pelos campos **id e created_at** é tão eficiente quanto no Cenário 1.
 
 ```sql
-SELECT * FROM Vendas_Partitioned_Two WHERE id = 60001 and created_at = '2025-01-08'
+SELECT * FROM Vendas_Partitioned_Two WHERE id = 1 and created_at = '2025-01-21'
 ```
 
 ![resultado da busca pelos campos id e created_at](./scenario_2/busca_id_e_created_at.png)
@@ -150,7 +152,7 @@ SELECT * FROM Vendas_Partitioned_Two WHERE id = 60001 and created_at = '2025-01-
 A busca por **created_at** também tem um comportamento parecido de index scan.
 
 ```sql
-SELECT * FROM Vendas_Partitioned_Two WHERE created_at = '2025-01-08'
+SELECT * FROM Vendas_Partitioned_Two WHERE created_at = '2025-01-21'
 ```
 
 ![resultado da busca pelo campo created_at](./scenario_2/busca_created_at.png)
@@ -160,14 +162,14 @@ Uma **pequena diferença** nesse cenário é na busca pelo campo **id**.
 Aqui, dependendo da quantidade de registros, o banco pode escolher por fazer um index seek no índice CLUSTERIZADO e varrer todas as partições (tal qual feito no cenário 1).
 
 ```sql
-SELECT * FROM Vendas_Partitioned_Two WHERE id = 600001
+SELECT * FROM Vendas_Partitioned_Two WHERE id = 1
 ```
 ![resultado da busca pelo campo id](./scenario_2/busca_id.png)
 
 ... ou o SQL Server pode escolher o índice da PK NONCLUSTERED para fazer o filtro. Caso isso aconteça, será feita uma operação de index seek na PK e um Key Lookup com o índice CLUSTERED.
 
 ```sql
-SELECT * FROM Vendas_Partitioned_Two WITH(INDEX(PK_Vendas_Partitioned_Two_Id)) WHERE id = 1199999
+SELECT * FROM Vendas_Partitioned_Two WITH(INDEX(PK_Vendas_Partitioned_Two_Id)) WHERE id = 1
 ```
 ![resultado da busca pelo campo id usando PK](./scenario_2/busca_id_forçando_uso_da_pk.png)
 
@@ -180,7 +182,7 @@ A manutenção dos índices, reorganize/rebuild, pode ser feita por partição (
 
 ### Cenário 0
 
-Como a tabela deste cenário não é particionada, a tarefa de REORGANIZE/REBUILD precisa reescrever/varrer todo o índice (quanto maior o índice, mais demorado e custoso será o processo).
+Como a tabela deste cenário não é particionada, a tarefa de [REORGANIZE/REBUILD](./scenario_0/index_fragmentation.sql) precisa reescrever/varrer todo o índice (quanto maior o índice, mais demorado e custoso será o processo).
 
 ![fragmentação dos índices da tabela Vendas](./scenario_0/fragmentacao_dos_indices.png)
 
@@ -200,7 +202,7 @@ Aqui podemos ver também que o index scan realizado teve que ler todos os 600.00
 
 ### Cenário 1
 
-Já no caso de uma tabela com os índices particionados, podemos ver somente uma fração dos registros em cada partição. Isso significa também que podemos realizar o REBUILD ou o REORGANIZE de uma única partição, ou em todas, conforme necessidade.
+Já no caso de uma tabela com os índices particionados, podemos ver somente uma fração dos registros em cada partição. Isso significa também que podemos realizar o REBUILD ou o REORGANIZE de uma única partição, ou em todas, conforme necessidade: [index_fragmentation.sql](./scenario_1/index_fragmentation.sql)
 
 ![fragmentação dos índices da tabela Vendas_Partitioned_One](./scenario_1/fragmentacao_dos_indices.png)
 
@@ -239,7 +241,7 @@ Além disso, analisando o plano de execução vemos que o index scan performado 
 
 Comparando cenário 2 com cenário 1, a manutenção do índice CLUSTERED permanece a mesma.
 
-Isso porque o índice está particionada da mesma forma em ambos cenários. A grande diferença está no índice da PK, que neste cenário não está particionado.
+Isso porque o índice está particionada da mesma forma em ambos cenários. A grande diferença está no índice da PK, que neste cenário não está particionado: [index_fragmentation.sql](./scenario_2/index_fragmentation.sql)
 
 ![fragmentação dos índices da tabela Vendas_Partitioned_Two](./scenario_2/fragmentacao_dos_indices.png)
 
