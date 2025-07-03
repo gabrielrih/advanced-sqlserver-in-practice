@@ -94,7 +94,7 @@ Como estamos criando ambos índices particionados, vemos que cada partição rec
 ![índices criados](./scenario_2/partitions.png)
 
 ## Teste de busca de dados
-### Scenario 0
+### Cenário 0
 
 Com essa abordagem, quanto mais registros temos na tabela, mais os índices crescerão e mais custoso será para o banco de dados realizar operações de leitura.
 
@@ -136,7 +136,7 @@ SELECT * FROM Students WHERE full_name = 'Aluno_20_Tenant_100'
 SELECT * FROM Students WHERE student_id = 200
 ```
 
-### Scenario 1
+### Cenário 1
 
 O plano de execução das queries no cenário de particionamento é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas binárias quando houver *partition elimination*.
 
@@ -185,11 +185,11 @@ SELECT * FROM Students_Partitioned_One WHERE student_id = 200
 
 > Nas duas queries acima, o cenário de particionamento é um pouco mais custoso que no ambiente não particionado. Isso se deve muito pelo fato de necessitar acessar todas as partições. Quando isso acontece à um custo extra no gerenciamento desses acessos multi partições.
 
-### Scenario 2 
+### Cenário 2 
 
-Assim como no Scenario 1, o plano de execução das queries é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas binários quando houver *partition elimination*. Por outro lado, operações de scan em múltiplas partições podem ser mais lentas do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
+Assim como no Cenário 1, o plano de execução das queries é praticamente o mesmo que no cenário sem particionamento. A grande diferença de ganho de performance está no uso menor de CPU e IO ao percorrer as estruturas binários quando houver *partition elimination*. Por outro lado, operações de scan em múltiplas partições podem ser mais lentas do que em uma estrutura sem particionamento por conta do overhead de controle das partições.
 
-Temos que lembrar também que no scenario 2 temos um campo extra chamado `tenant_partition` para indicar em qual partição os registros estão, nesse caso, sempre que informarmos o valor de `tenant_id` temos que informar também `tenant_partition` para ter uma boa performance.
+Temos que lembrar também que no cenário 2 temos um campo extra chamado `tenant_partition` para indicar em qual partição os registros estão, nesse caso, sempre que informarmos o valor de `tenant_id` temos que informar também `tenant_partition` para ter uma boa performance.
 
 **Operações eficientes**:
 - tenant_id, tenant_partition e client_id: INDEX SEEK pela PK em 1 registro acessando uma única partição.
@@ -250,14 +250,14 @@ SELECT * FROM Students_Partitioned_Two WHERE student_id = 200
 
 
 
-**Scenario 0 (Sem particionamento)**:
+**Cenário 0 (Sem particionamento)**:
 - Simplicidade na implementação.
 
 - Recomendado em cenários em que o volume de dados ainda permite que as queries sejam eficientes, ou em cenários em que a busca sem o `tenant_id` é bastante comum.
 
 - Também faz sentido utilizar a abordagem sem particionamento caso a tabela não seja muito utilizada nos fluxos críticos da aplicação (que demandam uma maior performance).
 
-**Scenario 1**:
+**Cenário 1**:
 - O Partition Function por range pode ser útil quando você já tem uma quantidade grande de tenants em uma tabela não particionada e quer migrar esses dados para uma tabela particionada. Assim, você pode estimar de antemão qual é a melhor estratégia de range para que os dados fiquem uniformemente distribuído entre as partições. Isso permite, por exemplo, cadastrar os *outliers* - tenants que possuem uma quantidade muito acima de alunos - em um partição só para eles.
 
 Exemplo onde 1001 e 1002 são *outliers*:
@@ -283,7 +283,7 @@ AS RANGE LEFT FOR VALUES (1000, 1001, 1002, 2000, 3000, 4000, 5000, 6000)
 
 - A aplicação não precisa controlar/conhecer nenhum campo extra. Somente com o campo `tenant_id` já é possível realizar o particionamento corretamente.
 
-**Scenario 2**:
+**Cenário 2**:
 - **Cenário bom quando tivermos uma quantidade uniforme de alunos em cada tenant**: A distribuição de carga dos tenants será uniforme entre as partições. Isso pode ser útil no caso da quantidade de tenant ir aumentando aos poucos (começamos com poucos tenants e aumentando de forma orgânica). Isso acontece porque os primeiros 10 tenants serão distribuídos um em cada partição; os próximos 10 tenants também serão distribuídos um por partição; ou seja, a cada 10 novos tenants, eu terei uma quantidade igual de tenants em cada partição.
 
 > Veja que embora a quantidade de tenants seja igual entre cada partição, a quantidade de alunos pode variar bastante.
@@ -293,4 +293,4 @@ AS RANGE LEFT FOR VALUES (1000, 1001, 1002, 2000, 3000, 4000, 5000, 6000)
 - **A expansão da quantidade de partições neste cenário não é tão simples**: precisaríamos mudar a estrutura da tabela criando um campo novo de CHECKSUM e possivelmente teríamos que mover dados entre as partições. Para reduzir a possibilidade desse problema, seria bom se tivessemos uma expectativa da quantidade máxima de tenants que vamos atingir antes de optar por essa estratégia. Isso auxilia na definição da quantidade de partições necessárias para manter uma boa performance da aplicação.
 
 
-> **CUIDADOS COM AMBAS ABORDAGENS DE PARTICIONAMENTO**: Cada tenant terá uma quantidade X de alunos. Caso eu tenha muitos tenants grandes em uma mesma partição, a distribuição dos dados pode se tornar desigual. Nesse caso, no scenario 1 eu tenho a possibilidade de reorganizar o partition function / scheme e criar uma partição única para aquele tenant; Já no scenario 2, essa possibilidade somente existirá caso a aplicação controle em qual partition o tenant será salvo.
+> **CUIDADOS COM AMBAS ABORDAGENS DE PARTICIONAMENTO**: Cada tenant terá uma quantidade X de alunos. Caso eu tenha muitos tenants grandes em uma mesma partição, a distribuição dos dados pode se tornar desigual. Nesse caso, no cenário 1 eu tenho a possibilidade de reorganizar o partition function / scheme e criar uma partição única para aquele tenant; Já no cenário 2, essa possibilidade somente existirá caso a aplicação controle em qual partition o tenant será salvo.
