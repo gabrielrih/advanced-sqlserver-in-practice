@@ -42,6 +42,15 @@ Como estamos criando os índices sem particionamento, todos os registros são sa
 ### Cenário 1
 Nessa abordagem criamos a **PK CLUSTERED** composta por id e created_at (onde created_at é o campo particionado). Além disso, criamos também um índice auxiliar somente por created_at, também particionado, permitindo buscas sem o id.
 
+```sql
+CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
+AS RANGE RIGHT FOR VALUES (
+    '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
+    '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
+	'2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
+)
+```
+
 **Passos**:
 - Criar a tabela: [ddl.sql](./scenario_1/ddl.sql)
 
@@ -75,11 +84,19 @@ Operações de **index_seek** nesses dados talvez não serão tão perceptíveis
 
 Aqui temos um exemplo de uma busca pelo campo created_at. Veja que mesmo executando duas operações normalmente eficientes, que são o index_seek e o key_lookup, ainda assim, devido à quantidade total de registros, o banco precisou fazer 5.411 *logical reads*.
 
+```sql
+SELECT * FROM Vendas WHERE created_at = '2025-10-10'
+```
+
 ![resultado da busca pelo campo created_at](./scenario_0/busca_created_at.png)
 
 ![resultado das statistics na busca pelo campo created_at](./scenario_0/busca_created_at_statistics.png)
 
 Lembrando que o key lookup acontece pois o index seek é feito no índice NONCLUSTERED que não possui todos os campos da projeção, e por isso ele precisa realizar um key lookup no índice CLUSTERED para buscar os dados faltantes. Em um cenário onde o filtro consegue realizar um index seek diretamente no índice CLUSTERED, essa busca será muito mais eficiente mesmo para essa tabela não particionada. Conforme exemplo abaixo filtrando pelo campo id (PK clusterizada).
+
+```sql
+SELECT * FROM Vendas WHERE id = 15670
+```
 
 ![resultado da busca pelo campo id](./scenario_0/busca_id.png)
 
@@ -92,15 +109,25 @@ Com essa abordagem temos duas possibilidade de filtro WHERE para uma busca efici
 
 A busca pelos campos **id e created_at** irá realizar um index seek no índice clustered (que também é PK). A busca consegue executar de forma eficiente pois contém ambos campos do índice, assim conseguindo realizar a busca em uma única partição. Mesmo que a tabela tenha dezenas de partições, a busca será realizada somente em uma delas.
 
+```sql
+SELECT * FROM Vendas_Partitioned_one WHERE id = 1200007 and created_at = '2025-01-17'
+```
 ![resultado da busca pelos campos id e created_at](./scenario_1/busca_id_e_created_at.png)
 
 Além disso, note que conseguimos buscar os dados de forma eficiente mesmo usando o * na projeção. Isso é possível pois como a busca está sendo realizada no índice CLUSTERED, temos os dados do nível folha no mesmo índice.
 
 Já a busca pelo campo **created_at** também será relativamente eficiente. Note que como podemos ter N registros para um mesmo created_at, tem uma grande possibilidade do banco realizar um index scan para essa busca. A vantagem aqui é que como o índice é particionado e estamos buscando por um único dia, o SQL Server irá varrer uma única partição (nesse exemplo varrendo 50.000 registros ao invés dos 600.000 que existem em toda a tabela).
 
+```sql
+SELECT * FROM Vendas_Partitioned_one WHERE created_at = '2025-01-17'
+```
 ![resultado da busca pelo campo created_at](./scenario_1/busca_created_at.png)
 
 **IMPORTANTE**: Nesse cenário é extremamente importante tomar cuidado com filtros somente pelo campo id. Isso acontece pois o particionamento é feito pela composição dos campos id e created_at, assim, quando eu realizo uma busca somente pelo campo id o banco precisa percorrer todas as partições (já que o id pode existir em uma ou mais partições).
+
+```sql
+SELECT * FROM Vendas_Partitioned_one WHERE id = 60001
+```
 
 ![resultado da busca pelo campo id](./scenario_1/busca_id.png)
 
@@ -114,9 +141,17 @@ Note que apesar da mudança na estrutura dos índices entre o cenário 1 e o cen
 
 A busca pelos campos **id e created_at** é tão eficiente quanto no Cenário 1.
 
+```sql
+SELECT * FROM Vendas_Partitioned_Two WHERE id = 60001 and created_at = '2025-01-08'
+```
+
 ![resultado da busca pelos campos id e created_at](./scenario_2/busca_id_e_created_at.png)
 
 A busca por **created_at** também tem um comportamento parecido de index scan.
+
+```sql
+SELECT * FROM Vendas_Partitioned_Two WHERE created_at = '2025-01-08'
+```
 
 ![resultado da busca pelo campo created_at](./scenario_2/busca_created_at.png)
 
@@ -124,10 +159,16 @@ Uma **pequena diferença** nesse cenário é na busca pelo campo **id**.
 
 Aqui, dependendo da quantidade de registros, o banco pode escolher por fazer um index seek no índice CLUSTERIZADO e varrer todas as partições (tal qual feito no cenário 1).
 
+```sql
+SELECT * FROM Vendas_Partitioned_Two WHERE id = 600001
+```
 ![resultado da busca pelo campo id](./scenario_2/busca_id.png)
 
 ... ou o SQL Server pode escolher o índice da PK NONCLUSTERED para fazer o filtro. Caso isso aconteça, será feita uma operação de index seek na PK e um Key Lookup com o índice CLUSTERED.
 
+```sql
+SELECT * FROM Vendas_Partitioned_Two WITH(INDEX(PK_Vendas_Partitioned_Two_Id)) WHERE id = 1199999
+```
 ![resultado da busca pelo campo id usando PK](./scenario_2/busca_id_forçando_uso_da_pk.png)
 
 > A busca por id usando a PK não necessariamente será melhor que a primeira opção, porém o interessante aqui é que o SQL Server terá esse recurso caso necessário.
@@ -226,6 +267,7 @@ ALTER INDEX [PK_Vendas_Partitioned_Two_Id] ON [dbo].[Vendas_Partitioned_Two] REB
 
 ![index scan no rebuild da PK não particionada](./scenario_2/index_scan_no_rebuild_pk.png)
 
+> Uma boa prática de PK para evitar alta fragmentação é utilizar valores sequenciais. Exemplo: INT sequencial ou [NEWSEQUENTIALID](https://learn.microsoft.com/en-us/sql/t-sql/functions/newsequentialid-transact-sql?view=sql-server-ver17). Valores randômicos como [NEWID](https://learn.microsoft.com/pt-br/sql/t-sql/functions/newid-transact-sql?view=sql-server-ver17) gera bastante fragmentação.
 
 ## House Keeping e arquivamento
 
@@ -250,7 +292,7 @@ SELECT cliente, valor, created_at FROM Vendas WHERE created_at <= '2025-01-31'
 De toda forma, ambas abordagens ficam mais lentas conforme a quantidade de dados aumenta.
 
 ### Cenário 1 e 2
-Já para os cenários com particionamento, a estratégia de **expurgo de dados** e **arquivamento** pode ser realizada através de um comando DDL que basicamente move a partição de uma tabela para outra.
+Já para os cenários com particionamento, a estratégia de **expurgo de dados** e **arquivamento** pode ser realizada através de um comando DDL que basicamente **move a partição de uma tabela para outra**.
 
 Para isso, você precisa de uma tabela secundário com a mesma estrutura da tabela original. Portanto, criei uma nova tabela com a mesma estrutura e os mesmos índices da **Vendas_Partitioned_One**, porém com o nome **Vendas_Partitioned_One_Purge** ([ddl.sql](./scenario_1/ddl.sql)).
 
@@ -334,4 +376,4 @@ Ao final teremos o cenário conforme imagem abaixo, dados já existentes usando 
 | ------- | ------------------------- | ------------------- | ------------------- |
 | 0       | Índices não particionados | Simplicidade na criação, manutenção e operação | Pouco escalabilidade: Perdemos performance e tarefas de manutenção de tornam cada vez mais lentas |
 | 1       | Índices particionados | Ganho de performance em consultas e manutenções | Não temos um controle de unicidade para o campo o "id". Na prática, podemos ter dois "id" iguais desde que a created_at seja diferente. OBS: Se a aplicação controla a unicidade essa questão é irrelevante |
-| 2       | Índice clustered particionado e PK não particionada | Conseguimos garantir unicidade do campo "id". Isso pode ser útil por exemplo caso a PK for CPF | O índice da PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em reorganize/rebuild de índice |
+| 2       | Índice clustered particionado e PK não particionada | Conseguimos garantir unicidade do campo "id". Isso pode ser útil caso a aplicação tenha concorrência na geração desse id | O índice da PK, como não é particionada, crescerá cada vez mais conforme a tabela também aumentar. Quanto maior a tabela mais custoso será percorrer esse índice em consultas ou mesmo em operações de reorganize/rebuild |
