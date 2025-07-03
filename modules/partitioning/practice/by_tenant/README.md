@@ -20,7 +20,7 @@ Todas, ou a maioria, das buscas na base de dados utilizam o escopo de tenant (fi
 ## Preparando o ambiente
 
 ```sql
-CREATE DATABASE [SistemaEducativo];
+CREATE DATABASE [SistemaEducativo]
 GO
 ```
 
@@ -33,7 +33,7 @@ Inicialmente criamos uma tabela chamada **Students** não particionada. Nesse ex
 **Passos**:
 - Criar a tabela: [ddl.sql](./scenario_0/ddl.sql)
 
-- Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_0/load.sql)
+- Inserir massa de dados: Inserir 50.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 5.000.000 registros na tabela: [load.sql](./scenario_0/load.sql)
 
 Como estamos criando os índices sem particionamento, todos os registros são salvos em uma única estrutura binário, uma única partição: [partitions.sql](./scenario_0/partitions.sql).
 
@@ -64,9 +64,9 @@ AS RANGE LEFT FOR VALUES (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
 **Passos**:
 - Criar a tabela: [ddl.sql](./scenario_1/ddl.sql)
 
-- Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_1/load.sql)
+- Inserir massa de dados: Inserir 50.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 5.000.000 registros na tabela: [load.sql](./scenario_1/load.sql)
 
-Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos): [partitions.sql](./scenario_1/partitions.sql).
+Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 500.000 linhas (que representam os alunos): [partitions.sql](./scenario_1/partitions.sql).
 
 ![índices criados](./scenario_1/partitions.png)
 
@@ -87,9 +87,9 @@ No nosso exemplo, estamos usando a primeira opção por questão de simplicidade
 **Passos**:
 - Criar a tabela: [ddl.sql](./scenario_2/ddl.sql)
 
-- Inserir massa de dados: Inserir 5.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 500.000 registros na tabela: [load.sql](./scenario_2/load.sql)
+- Inserir massa de dados: Inserir 50.000 alunos para cada tenant (tendo 100 tenants), nos dando um total de 5.000.000 registros na tabela: [load.sql](./scenario_2/load.sql)
 
-Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 50.000 linhas (que representam os alunos): [partitions.sql](./scenario_2/partitions.sql).
+Como estamos criando ambos índices particionados, vemos que cada partição recebeu o equivalente a 500.000 linhas (que representam os alunos): [partitions.sql](./scenario_2/partitions.sql).
 
 ![índices criados](./scenario_2/partitions.png)
 

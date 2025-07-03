@@ -22,7 +22,7 @@ Estamos simulando um **Sistema de Vendas**. Nesse sentido, a maioria das buscas 
 ## Preparando o ambiente
 
 ```sql
-CREATE DATABASE [LojaParticionada];
+CREATE DATABASE [LojaParticionada]
 GO
 ```
 
