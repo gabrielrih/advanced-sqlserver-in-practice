@@ -318,7 +318,7 @@ Podemos adicionar novas partições de duas forma:
 - OFFLINE
 
 **ONLINE**
-Para possibilitar a execução da forma online, o PARTITION SCHEMA deve ter slots disponíveis apontando para filegroup. Nesse caso, baseado no exemplo do partition function abaixo
+Para possibilitar a execução da forma online, o PARTITION SCHEME deve ter slots disponíveis apontando para filegroup. Nesse caso, baseado no exemplo do partition function abaixo
 
 ```sql
 CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
@@ -330,16 +330,25 @@ AS RANGE RIGHT FOR VALUES (
 GO
 ```
 
-... podemos executar o comando abaixo de forma ONLINE para adicionar a nova partição sem impactar o correto funcionamento do banco de dados:
+... podemos executar o comando abaixo de forma ONLINE para adicionar a nova partição sem impactar o correto funcionamento do banco de dados caso ainda tenha slots disponíveis no partition scheme:
 
 ```sql
 ALTER PARTITION FUNCTION pf_VendasPorMes() SPLIT RANGE ('2026-01-01')
 ```
 
-**OFFLINE**
-Pode ser que não tenhamos slots suficientes no PARTITION SCHEMA. Se isso acontecer, a única forma de criar novas partições é criar uma nova tabela, partition schema e partition function e migrar os dados. Mas não se desespere, com a alternativa do SWITCH PARTITION esse processo é bastante rápido de realizar com um downtime mínimo.
+Validar a quantidade de slots disponíveis:
+```sql
+SELECT COUNT(*) AS mapped_filegroups
+FROM sys.partition_schemes ps
+JOIN sys.destination_data_spaces dds ON ps.data_space_id = dds.partition_scheme_id
+WHERE ps.name = 'my_ps_name_here';
+```
 
-Imagine então que a gente crie uma nova PARTITION FUNCTION adicionando também todos os meses de 2026 (além dos já existentes de 2025). Também criamos uma PARTITION SCHEMA para acomodar essas partições. Agora criamos a tabela **Vendas_Partitioned_One_New** com a mesma estrutura da original porém usando o partition schema e partition function novo.
+
+**OFFLINE**
+Pode ser que não tenhamos slots suficientes no PARTITION SCHEME. Se isso acontecer, a única forma de criar novas partições é criar uma nova tabela, partition scheme e partition function e migrar os dados. Mas não se desespere, com a alternativa do SWITCH PARTITION esse processo é bastante rápido de realizar com um downtime mínimo.
+
+Imagine então que a gente crie uma nova PARTITION FUNCTION adicionando também todos os meses de 2026 (além dos já existentes de 2025). Também criamos uma PARTITION SCHEME para acomodar essas partições. Agora criamos a tabela **Vendas_Partitioned_One_New** com a mesma estrutura da original porém usando o partition scheme e partition function novo.
 
 Agora, com a aplicação parada, nós movemos todas as partições atuais para a nova tabela e ao final renomeamos a tabela:
 
@@ -368,7 +377,7 @@ Ao final teremos o cenário conforme imagem abaixo, dados já existentes usando 
 
 ![novas partições](./scenario_1/novas_partitions.png)
 
-
+> O recomendado é sempre criar o particionamento já com uma previsibilidade de no mínimo 2-3 anos sem precisar mexer nas partições.
 
 ## Comparação entre cenários
 
