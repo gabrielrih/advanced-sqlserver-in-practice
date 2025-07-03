@@ -1,16 +1,28 @@
 USE [LojaParticionada];
 GO
 
-CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
-AS RANGE RIGHT FOR VALUES (
-    '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
-    '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
-	'2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
+IF NOT EXISTS (
+    SELECT * FROM sys.partition_functions
+    WHERE name = 'pf_VendasPorMes'
 )
+BEGIN
+    CREATE PARTITION FUNCTION [pf_VendasPorMes] (DATE)
+    AS RANGE RIGHT FOR VALUES (
+        '2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01',
+        '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01',
+        '2025-09-01', '2025-10-01', '2025-11-01', '2025-12-01'
+    )
+END
 GO
 
-CREATE PARTITION SCHEME [ps_VendasPorMes]
-AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY]);
+IF NOT EXISTS (
+    SELECT * FROM sys.partition_schemes
+    WHERE name = 'ps_VendasPorMes'
+)
+BEGIN
+	CREATE PARTITION SCHEME [ps_VendasPorMes]
+	AS PARTITION [pf_VendasPorMes] ALL TO ([PRIMARY])
+END
 GO
 
 CREATE TABLE [dbo].[Vendas_Partitioned_Two] (
